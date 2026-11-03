@@ -2,8 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
-import { parseManifest, readManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
-import { DropZone, short } from "./ui";
+import { badgeSnippets, parseManifest, readManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
 
@@ -21,6 +21,7 @@ const DEMO_PROJECT = "";
 function Verify() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("project") ?? "");
   const [events, setEvents] = useState<SealEvent[] | null>(null);
+  const [opened, setOpened] = useState("");
   const [manifests, setManifests] = useState<Record<string, Manifest>>({});
   const [wrong, setWrong] = useState<Record<string, boolean>>({});
   const [results, setResults] = useState<Result[] | null>(null);
@@ -51,6 +52,7 @@ function Verify() {
       setManifests(ms);
       setWrong(bad);
       setEvents(ev);
+      setOpened(cat.toLowerCase());
     } catch (e) {
       const msg = String((e as Error).message ?? e);
       setError(/No such mempool or blockchain transaction/.test(msg) ? "No project with this id exists on Bitcoin Cash. Check the id or the link." : msg);
@@ -74,6 +76,8 @@ function Verify() {
 
   const latest = events?.filter((e) => e.kind === "release").at(-1);
   const name = events?.find((e) => e.kind === "genesis")?.version;
+  // the id that was opened, not the input box, which the user may have edited since
+  const badge = events ? badgeSnippets(new URL(".", location.href).href, opened) : undefined;
   return (
     <section>
       <form
@@ -130,6 +134,19 @@ function Verify() {
                 </li>
               ))}
             </ol>
+            {badge && (
+              <details className="badge">
+                <summary>Badge for your download page</summary>
+                <p>
+                  <a href={badge.link}>
+                    <img src="./badge.svg" alt="Verify this download with Release Seal" height="20" />
+                  </a>
+                </p>
+                <p className="muted">Put it next to your download links. It opens this page with the project already loaded.</p>
+                <Snippet label="HTML" text={badge.html} />
+                <Snippet label="Markdown, for a README" text={badge.markdown} />
+              </details>
+            )}
           </div>
           <DropZone onFiles={verify} label="Drop downloaded files here to check them" />
         </>

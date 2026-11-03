@@ -1,6 +1,6 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
+import { badgeSnippets, checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
 import type { SealEvent } from "./chain";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
@@ -176,5 +176,21 @@ describe("pickList", () => {
     expect(other.error).toMatch(/is for project abababababab/);
     expect(other.files).toEqual([]);
     expect(pickList([json], [{ ...list, project: "" }], "cd".repeat(32)).error).toBeUndefined();
+  });
+});
+
+describe("badgeSnippets", () => {
+  const id = "AB".repeat(32);
+  it("links the badge to the project's verify page, with or without a trailing slash", () => {
+    const s = badgeSnippets("https://emilhuseyn.github.io/release-seal/", id)!;
+    expect(s.link).toBe(`https://emilhuseyn.github.io/release-seal/?project=${"ab".repeat(32)}`);
+    expect(badgeSnippets("https://emilhuseyn.github.io/release-seal", id)).toEqual(s);
+    expect(s.markdown).toBe(`[![Verify this download with Release Seal](https://emilhuseyn.github.io/release-seal/badge.svg)](${s.link})`);
+    expect(s.html).toContain(`href="${s.link}"`);
+    expect(s.html).toContain('src="https://emilhuseyn.github.io/release-seal/badge.svg"');
+  });
+  it("gives nothing for an id that is not a token category", () => {
+    expect(badgeSnippets("https://x/", "ab".repeat(31))).toBeUndefined();
+    expect(badgeSnippets("https://x/", `${"ab".repeat(31)}"><script>`)).toBeUndefined();
   });
 });

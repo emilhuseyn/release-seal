@@ -29,3 +29,26 @@ export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[], raw: Fi
     </label>
   );
 }
+
+export function Snippet({ label, text }: { label: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="snippet">
+      <div className="row">
+        <span className="muted">{label}</span>
+        <button
+          type="button"
+          onClick={() =>
+            navigator.clipboard.writeText(text).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            )
+          }
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre>{text}</pre>
+    </div>
+  );
+}

@@ -46,6 +46,9 @@ Publish `seal.json` with the release, then drop just that file on the Seal tab a
 it reads, and any release files dropped with it must be on that list. Copy the script into your own repo rather than fetching it
 at build time, so a change on this site cannot reach your releases. No wallet key goes near the job.
 
+Badge: an open project's page has a "Badge for your download page" box with HTML and Markdown to copy. The badge links to
+`?project=<id>`, so a user who clicks it lands on the verify page with the project loaded and only has to drop the file.
+
 ## Status
 
 Transactions are built in the browser with libauth. Tests sign them with throwaway keys on dummy coins and run them through

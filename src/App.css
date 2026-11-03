@@ -147,3 +147,28 @@ input {
 .steps li + li {
   margin-top: 6px;
 }
+
+.badge {
+  margin-top: 12px;
+}
+
+.badge summary {
+  cursor: pointer;
+}
+
+.snippet pre {
+  margin: 4px 0 8px;
+  padding: 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.snippet .row {
+  align-items: center;
+  justify-content: space-between;
+}

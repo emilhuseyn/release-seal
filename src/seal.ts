@@ -221,3 +221,16 @@ export const verdicts = (
   const checks: Check[] = dropped.map((d) => ({ name: d.name, status: "unknown" }));
   return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks }];
 };
+
+// What a maintainer pastes on a download page: a badge that opens this project's verify page. base is the app's own URL.
+export const badgeSnippets = (base: string, project: string) => {
+  if (!/^[0-9a-f]{64}$/i.test(project)) return undefined;
+  const root = base.endsWith("/") ? base : `${base}/`;
+  const link = `${root}?project=${project.toLowerCase()}`;
+  const img = `${root}badge.svg`;
+  return {
+    link,
+    html: `<a href="${link}"><img src="${img}" alt="Verify this download with Release Seal" height="20"></a>`,
+    markdown: `[![Verify this download with Release Seal](${img})](${link})`,
+  };
+};

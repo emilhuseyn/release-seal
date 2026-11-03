@@ -200,6 +200,11 @@ export default function Publish() {
               </a>
             </p>
           )}
+          {/^[0-9a-f]{64}$/i.test(project) && (
+            <p className="muted">
+              <a href={`./?project=${project.toLowerCase()}`}>Project page</a>: the link to share, and the badge for your download page.
+            </p>
+          )}
         </div>
       )}
     </section>
