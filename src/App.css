@@ -1,42 +1,135 @@
-#root {
-  max-width: 1280px;
+main {
+  max-width: 760px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 0 16px 48px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 8px 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+header h1 {
+  margin: 24px 0 4px;
+  font-size: 2rem;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+header p {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button.on,
+button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input {
+  font: inherit;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
 }
 
 .card {
-  padding: 2em;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
 }
 
-.read-the-docs {
-  color: #888;
+.card h2,
+.card h3 {
+  margin: 0 0 4px;
+}
+
+.drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 32px 16px;
+  margin: 12px 0;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop.over {
+  border-color: var(--accent);
+}
+
+.drop small,
+.muted {
+  color: var(--muted);
+}
+
+.good {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.bad {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.timeline {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline li.revoked b {
+  text-decoration: line-through;
+}
+
+.tag {
+  font-size: 0.8rem;
 }

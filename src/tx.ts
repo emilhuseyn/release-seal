@@ -35,6 +35,17 @@ const P2PKH_UNLOCK_SIZE = 100;
 const sizeWith = (tx: Transaction, unlockSize: number) =>
   encodeTransaction({ ...tx, inputs: tx.inputs.map((i) => ({ ...i, unlockingBytecode: new Uint8Array(unlockSize) })) }).length;
 
+// WizardConnect (hdwalletv1) request: every input sits at the wallet's receive/0 address, the one the publisher NFT lives on.
+export const wizardRequest = (u: UnsignedSealTx, userPrompt: string) => ({
+  transaction: {
+    transaction: u.transaction,
+    sourceOutputs: u.transaction.inputs.map((input, i) => ({ ...input, ...u.sourceOutputs[i] })),
+    broadcast: true,
+    userPrompt,
+  },
+  inputPaths: u.transaction.inputs.map((_, i): [number, string, number] => [i, "receive", 0]),
+});
+
 export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, feeRate = 1n }: SealTxInput): UnsignedSealTx => {
   if (commitment.length > 40) throw new Error("NFT commitment is limited to 40 bytes");
   const coins = funding.filter((u) => !u.token);

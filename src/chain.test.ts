@@ -1,0 +1,91 @@
+// Walk test on a fake Fulcrum: real signed transactions (throwaway key, dummy coins), served from memory.
+import {
+  binToHex,
+  encodeTransaction,
+  hashTransactionUiOrder,
+  hexToBin,
+  lockingBytecodeToCashAddress,
+  publicKeyToP2pkhLockingBytecode,
+  secp256k1,
+  walletTemplateP2pkhNonHd,
+  walletTemplateToCompilerBCH,
+  type Output,
+  type Transaction,
+} from "@bitauth/libauth";
+import { describe, expect, it } from "vitest";
+import { walkProject, type Rpc } from "./chain";
+import { entryFor, merkleRoot, type SealRecord } from "./seal";
+import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
+
+const key = hexToBin("22".repeat(32));
+const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
+const lock = publicKeyToP2pkhLockingBytecode({ publicKey: pub });
+const addr = (lockingBytecode: Uint8Array) =>
+  (lockingBytecodeToCashAddress({ bytecode: lockingBytecode, prefix: "bitcoincash", tokenSupport: true }) as { address: string }).address;
+const compiler = walletTemplateToCompilerBCH(walletTemplateP2pkhNonHd);
+
+const sign = (transaction: Transaction, sourceOutputs: Output[]) => {
+  const signed = { ...transaction, inputs: transaction.inputs.map((i) => ({ ...i })) };
+  signed.inputs.forEach((input, inputIndex) => {
+    const r = compiler.generateBytecode({
+      data: { keys: { privateKeys: { key } }, compilationContext: { inputIndex, sourceOutputs, transaction: signed } },
+      scriptId: "unlock",
+    });
+    if (!r.success) throw new Error(JSON.stringify(r.errors));
+    input.unlockingBytecode = r.bytecode;
+  });
+  return signed;
+};
+
+const store = new Map<string, string>();
+const hist: { tx_hash: string; height: number }[] = [];
+const put = (tx: Transaction, height: number) => {
+  const raw = encodeTransaction(tx);
+  const txid = binToHex(hashTransactionUiOrder(raw));
+  store.set(txid, binToHex(raw));
+  hist.push({ tx_hash: txid, height });
+  return txid;
+};
+const rpc: Rpc = {
+  request: async (method, ...params) => {
+    if (method === "blockchain.transaction.get") return store.get(params[0] as string);
+    if (method === "blockchain.address.get_history") return params[0] === addr(lock) ? hist : [];
+    throw new Error(method);
+  },
+};
+
+const step = (record: SealRecord, commitment: Uint8Array, funding: Utxo[], nft?: Utxo, height = 0) => {
+  const u = buildSealTx({ record, commitment, publisherLock: lock, funding, nft });
+  const signed = sign(u.transaction, u.sourceOutputs);
+  const txid = put(signed, height);
+  return {
+    txid,
+    nft: { txid, vout: 0, satoshis: NFT_SATS, token: signed.outputs[0].token } as Utxo,
+    change: { txid, vout: 2, satoshis: signed.outputs[2].valueSatoshis } as Utxo,
+  };
+};
+
+describe("walkProject", () => {
+  it("follows genesis, two releases and a revoke", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("ab".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 900000);
+    const r = (n: number) => merkleRoot([entryFor(`app-${n}.tgz`, new Uint8Array([n]))]);
+    const g = step({ kind: "genesis", version: "demo", manifestUrl: "https://x.org" }, r(0), [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 900001);
+    const r1 = step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, r(1), [g.change], g.nft, 900002);
+    const r2 = step({ kind: "release", version: "v2", manifestUrl: "https://x.org/v2" }, r(2), [r1.change], r1.nft, 900003);
+    step({ kind: "revoke", version: "v1", manifestUrl: "https://x.org/v1" }, r(2), [r2.change], r2.nft, 900004);
+
+    const events = await walkProject(rpc, category);
+    expect(events.map((e) => e.kind)).toEqual(["genesis", "release", "release", "revoke"]);
+    expect(events[1].revoked).toBe(true);
+    expect(events[2].revoked).toBeUndefined();
+    expect(events[2].commitment).toBe(binToHex(r(2)));
+    expect(events.every((e) => e.publisher === addr(lock))).toBe(true);
+    expect(events.map((e) => e.height)).toEqual([900001, 900002, 900003, 900004]);
+  });
+});
