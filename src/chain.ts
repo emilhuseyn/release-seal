@@ -65,7 +65,8 @@ export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): P
       const tx = await getTx(rpc, item.tx_hash);
       const spends = tx.inputs.some((i) => binToHex(i.outpointTransactionHash) === current.txid && i.outpointIndex === current.vout);
       if (spends) {
-        next = { txid: item.tx_hash, height: item.height, tx };
+        // A mempool entry has height 0, or -1 when one of its parents is unconfirmed too (genesis right after the prep tx).
+        next = { txid: item.tx_hash, height: Math.max(0, item.height), tx };
         break;
       }
     }

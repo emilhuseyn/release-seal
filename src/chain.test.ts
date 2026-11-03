@@ -88,6 +88,23 @@ describe("walkProject", () => {
     expect(events.every((e) => e.publisher === addr(lock))).toBe(true);
     expect(events.map((e) => e.height)).toEqual([900001, 900002, 900003, 900004]);
   });
+
+  it("reads Fulcrum's mempool height -1 (unconfirmed parent) as unconfirmed", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("ac".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 0);
+    const root = merkleRoot([entryFor("fresh.tgz", new Uint8Array([7]))]);
+    const g = step({ kind: "genesis", version: "fresh", manifestUrl: "https://x.org" }, root, [{ txid: category, vout: 0, satoshis: 50000n }], undefined, -1);
+    step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, root, [g.change], g.nft, -1);
+
+    const events = await walkProject(rpc, category);
+    expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
+    expect(events.map((e) => e.height)).toEqual([0, 0]);
+  });
 });
 
 describe("broadcast", () => {
