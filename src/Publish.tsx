@@ -3,7 +3,7 @@ import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useEffect, useMemo, useState } from "react";
 import { broadcast, listUnspent } from "./chain";
 import { rpc } from "./rpc";
-import { findDuplicates, merkleRoot, type FileEntry, type Manifest } from "./seal";
+import { findDuplicates, merkleRoot, parseManifest, pickList, type FileEntry, type Manifest } from "./seal";
 import { buildPrepTx, buildSealTx, wizardRequest, type Utxo } from "./tx";
 import { DropZone, short } from "./ui";
 
@@ -12,7 +12,7 @@ export default function Publish() {
   const wc = useWizardConnect({ dappName: "Release Seal", persistSession: true });
   const [ready, setReady] = useState(false);
   const [showQr, setShowQr] = useState(false);
-  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [drop, setDrop] = useState<{ entries: FileEntry[]; lists: (Manifest | undefined)[]; names: string[] }>({ entries: [], lists: [], names: [] });
   const [project, setProject] = useState("");
   const [name, setName] = useState("");
   const [version, setVersion] = useState("");
@@ -61,6 +61,18 @@ export default function Publish() {
     const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash", tokenSupport: true });
     return typeof r === "string" ? r : r.address;
   }, [lock]);
+
+  // A seal.json from a release job (public/seal-manifest.mjs) stands in for the files; any files dropped with it must be on it.
+  // Derived on every render, so a project id typed after the drop is still checked against the list.
+  const picked = pickList(drop.entries, drop.lists, project);
+  const files = picked.files;
+  const fromList = picked.list ? drop.names[drop.lists.indexOf(picked.list)] : "";
+  const pick = async (entries: FileEntry[], raw: File[]) => {
+    const lists = await Promise.all(raw.map(async (f) => (/\.json$/i.test(f.name) && f.size < 1e6 ? parseManifest(await f.text()) : undefined)));
+    setDrop({ entries, lists, names: raw.map((f) => f.name) });
+    const v = lists.find((l) => l)?.version;
+    if (!version && v) setVersion(v);
+  };
 
   const manifest: Manifest = { protocol: 1, project, version, files };
   const dupes = findDuplicates(files);
@@ -153,7 +165,15 @@ export default function Publish() {
             <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="Release version, e.g. v1.2.0" />
             <input value={url} onChange={(e) => setUrl(e.target.value.trim())} placeholder="Project page or seal.json URL (https://...)" />
           </div>
-          <DropZone onFiles={setFiles} label={files.length ? `${files.length} files, root ${short(binToHex(merkleRoot(files)), 6)}` : "Drop the release files"} />
+          <DropZone
+            onFiles={pick}
+            label={
+              files.length
+                ? `${files.length} files${fromList ? ` from ${fromList}` : ""}, root ${short(binToHex(merkleRoot(files)), 6)}`
+                : "Drop the release files, or the seal.json your release job wrote"
+            }
+          />
+          {picked.error && <p className="bad">{picked.error}</p>}
           {dupes.length > 0 && <p className="bad">Duplicate names: {dupes.join(", ")}</p>}
           <div className="row">
             {!project && (

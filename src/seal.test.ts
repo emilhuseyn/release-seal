@@ -1,6 +1,6 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, readManifest, verdicts, type Manifest } from "./seal";
+import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
 import type { SealEvent } from "./chain";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
@@ -150,5 +150,31 @@ describe("verdicts", () => {
     const [r] = verdicts(events, { r1: honest }, {}, [entryFor("other.bin", utf8ToBin("x"))], [undefined]);
     expect(r.unchecked).toBe(false);
     expect(r.rootOk).toBe(true);
+  });
+});
+
+// Seal tab: the seal.json a release job wrote stands in for the files.
+describe("pickList", () => {
+  const list: Manifest = { protocol: 1, project: "ab".repeat(32), version: "v2", files };
+  const json = entryFor("seal.json", utf8ToBin("{}"));
+
+  it("keeps plain drops as they are", () => {
+    expect(pickList(files, files.map(() => undefined), "")).toEqual({ files });
+  });
+
+  it("takes the files from a dropped seal.json, with matching files beside it", () => {
+    const r = pickList([json, files[0]], [list, undefined], "ab".repeat(32));
+    expect(r.error).toBeUndefined();
+    expect(binToHex(merkleRoot(r.files))).toBe(binToHex(merkleRoot(files)));
+  });
+
+  it("refuses a file that is not on the list, a second list, and another project's list", () => {
+    const evil = entryFor("a.tar.gz", utf8ToBin("evil"));
+    expect(pickList([json, evil], [list, undefined], "").error).toMatch(/Not on the dropped seal.json: a.tar.gz/);
+    expect(pickList([json, json], [list, list], "").files).toEqual([]);
+    const other = pickList([json], [list], "cd".repeat(32));
+    expect(other.error).toMatch(/is for project abababababab/);
+    expect(other.files).toEqual([]);
+    expect(pickList([json], [{ ...list, project: "" }], "cd".repeat(32)).error).toBeUndefined();
   });
 });

@@ -165,6 +165,23 @@ export const checkFiles = (manifest: Manifest, commitment: Uint8Array, dropped: 
   return { rootOk, checks };
 };
 
+// Seal tab: a dropped seal.json (lists[i] for entries[i]) stands in for the files, and any files dropped with it must be on it.
+export const pickList = (entries: FileEntry[], lists: (Manifest | undefined)[], project: string) => {
+  const found = lists.filter((l) => l !== undefined);
+  if (!found.length) return { files: entries };
+  const [list] = found;
+  const off = entries.filter((e, i) => !lists[i] && !list.files.some((f) => f.name === e.name && f.sha256 === e.sha256 && f.size === e.size));
+  const error =
+    found.length > 1
+      ? "Drop one seal.json at a time."
+      : list.project && project && list.project !== project
+        ? `This seal.json is for project ${list.project.slice(0, 12)}..., not the project id above.`
+        : off.length
+          ? `Not on the dropped seal.json: ${off.map((o) => o.name).join(", ")}`
+          : undefined;
+  return { files: error ? [] : list.files, list, error };
+};
+
 export interface Result {
   event: SealEvent;
   rootOk: boolean;
