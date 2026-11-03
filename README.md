@@ -23,7 +23,7 @@ holder of the project's token can make.
 
 Sending the NFT to another address hands the project over. A revoke record marks a bad release, and the page then shows it in red.
 
-The check does not depend on the website either. If `seal.json` is gone or cannot be fetched, drop a copy from anywhere (a mirror,
+The check does not depend on the website either. If `seal.json` is gone, cannot be fetched or was swapped, drop a copy from anywhere (a mirror,
 a release asset) with the files: it counts only if its root is the one sealed on chain. With no list at all, dropping every file
 of a release still works, because the files' own root is compared with the seal.
 

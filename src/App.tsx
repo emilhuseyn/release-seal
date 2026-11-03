@@ -1,9 +1,8 @@
-import { binToHex, hexToBin } from "@bitauth/libauth";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
-import { checkFiles, isWholeRelease, merkleRoot, parseManifest, type Check, type FileEntry, type Manifest } from "./seal";
+import { parseManifest, readManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { DropZone, short } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
@@ -19,17 +18,11 @@ const BANNER = {
 const DEMO_PROJECT = "";
 
 
-interface Result {
-  event: SealEvent;
-  rootOk: boolean;
-  checks: Check[];
-  note?: string;
-}
-
 function Verify() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("project") ?? "");
   const [events, setEvents] = useState<SealEvent[] | null>(null);
   const [manifests, setManifests] = useState<Record<string, Manifest>>({});
+  const [wrong, setWrong] = useState<Record<string, boolean>>({});
   const [results, setResults] = useState<Result[] | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -44,14 +37,19 @@ function Verify() {
       const ev = await walkProject(await rpc(), cat.toLowerCase());
       if (!ev.length) throw new Error("No seal records found for this project.");
       const ms: Record<string, Manifest> = {};
+      const bad: Record<string, boolean> = {};
       for (const e of ev.filter((x) => x.kind === "release")) {
         try {
-          ms[e.txid] = await (await fetch(e.manifestUrl)).json();
+          // a replaced list must not shadow an honest seal.json the user drops, so only a list with the chain's root is kept
+          const m = readManifest(await (await fetch(e.manifestUrl)).text(), e.commitment);
+          if (m === "wrong") bad[e.txid] = true;
+          else if (m) ms[e.txid] = m;
         } catch {
           // a missing manifest shows as unverifiable for that release
         }
       }
       setManifests(ms);
+      setWrong(bad);
       setEvents(ev);
     } catch (e) {
       const msg = String((e as Error).message ?? e);
@@ -71,26 +69,7 @@ function Verify() {
     if (!events) return;
     // A dropped seal.json stands in for a list the page could not fetch (site down or taken over, no CORS); the chain decides.
     const lists = await Promise.all(raw.map(async (f) => (/\.json$/i.test(f.name) && f.size < 1e6 ? parseManifest(await f.text()) : undefined)));
-    const dropped = all.filter((_, i) => !lists[i]);
-    const out: Result[] = [];
-    const missing: SealEvent[] = [];
-    for (const event of events.filter((e) => e.kind === "release").reverse()) {
-      const commitment = hexToBin(event.commitment);
-      const m = manifests[event.txid] ?? lists.find((l) => l && binToHex(merkleRoot(l.files)) === event.commitment);
-      if (m) {
-        const r = checkFiles(m, commitment, dropped);
-        if (r.checks.some((c) => c.status !== "unknown")) out.push({ event, ...r });
-      } else if (isWholeRelease(dropped, commitment)) {
-        const note = "No file list was needed: together these files are exactly the sealed release.";
-        out.push({ event, rootOk: true, note, checks: dropped.map((d) => ({ name: d.name, status: "match", expected: d })) });
-      } else missing.push(event);
-    }
-    if (out.length) return setResults(out);
-    const event = missing[0] ?? events[events.length - 1];
-    const note = missing.length
-      ? `The file list of ${event.version} could not be read from ${event.manifestUrl}. Drop its seal.json from any copy together with the files, or drop every file of the release.`
-      : undefined;
-    setResults([{ event, rootOk: true, note, checks: dropped.map((d) => ({ name: d.name, status: "unknown" })) }]);
+    setResults(verdicts(events, manifests, wrong, all, lists));
   };
 
   const latest = events?.filter((e) => e.kind === "release").at(-1);
@@ -148,7 +127,7 @@ function Verify() {
           {r.note && <p className="muted">{r.note}</p>}
           {r.checks.map((c) => (
             <p key={c.name} className={c.status === "match" && r.rootOk && !r.event.revoked ? "good" : c.status === "unknown" ? "muted" : "bad"}>
-              {c.status === "match" ? "Matches" : c.status === "changed" ? "DIFFERENT from" : "Not part of"} {c.expected?.name ?? "this release"}: {c.name}
+              {r.unchecked ? "Not checked yet" : `${c.status === "match" ? "Matches" : c.status === "changed" ? "DIFFERENT from" : "Not part of"} ${c.expected?.name ?? "this release"}`}: {c.name}
             </p>
           ))}
         </div>

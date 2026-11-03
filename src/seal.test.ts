@@ -1,6 +1,7 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, type Manifest } from "./seal";
+import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, readManifest, verdicts, type Manifest } from "./seal";
+import type { SealEvent } from "./chain";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
 
@@ -100,6 +101,16 @@ describe("without a fetched file list", () => {
     expect(parseManifest(JSON.stringify({ protocol: 1, files: [{ name: "a", size: 1, sha256: "00" }] }))).toBeUndefined();
   });
 
+  it("trusts a hosted seal.json only when its root is the commitment", () => {
+    const hex = binToHex(root);
+    const good = JSON.stringify({ protocol: 1, files });
+    const swapped = JSON.stringify({ protocol: 1, files: files.map((f, i) => (i ? f : entryFor(f.name, utf8ToBin("evil")))) });
+    expect((readManifest(good, hex) as Manifest).files.length).toBe(5);
+    expect(readManifest(swapped, hex)).toBe("wrong");
+    expect(readManifest("{}", hex)).toBeUndefined();
+    expect(readManifest("<!doctype html><title>404</title>", hex)).toBeUndefined();
+  });
+
   it("accepts the full set of files as the release, renamed downloads included", () => {
     expect(isWholeRelease([...files].reverse(), root)).toBe(true);
     expect(isWholeRelease(files.map((f, i) => (i ? f : { ...f, name: "a (1).tar.gz" })), root)).toBe(true);
@@ -110,5 +121,34 @@ describe("without a fetched file list", () => {
     expect(isWholeRelease([...files, entryFor("x", utf8ToBin("x"))], root)).toBe(false);
     expect(isWholeRelease(files.map((f, i) => (i === 1 ? entryFor(f.name, utf8ToBin("evil")) : f)), root)).toBe(false);
     expect(isWholeRelease([], merkleRoot([]))).toBe(false);
+  });
+});
+
+describe("verdicts", () => {
+  const root = binToHex(merkleRoot(files));
+  const ev = (kind: SealEvent["kind"], txid: string, commitment: string): SealEvent =>
+    ({ kind, txid, commitment, version: kind === "genesis" ? "demo" : "v1", manifestUrl: "https://x/seal.json", height: 1, publisher: "q" });
+  const events = [ev("genesis", "g", "00".repeat(32)), ev("release", "r1", root)];
+  const honest = { protocol: 1, project: "", version: "v1", files };
+  const evil = entryFor("a.tar.gz", utf8ToBin("evil"));
+
+  it("still uses an honest dropped seal.json when the hosted one was replaced", () => {
+    const [r] = verdicts(events, {}, { r1: true }, [evil, files[1], entryFor("seal.json", utf8ToBin("{}"))], [undefined, undefined, honest]);
+    expect(r.rootOk).toBe(true);
+    expect(r.checks.map((c) => c.status)).toEqual(["changed", "match"]);
+    expect(r.note).toMatch(/does not match the chain and was ignored/);
+  });
+
+  it("warns and checks nothing when only a replaced list exists", () => {
+    const [r] = verdicts(events, {}, { r1: true }, [evil], [undefined]);
+    expect(r.rootOk).toBe(false);
+    expect(r.unchecked).toBe(true);
+    expect(r.checks[0].status).toBe("unknown");
+  });
+
+  it("says a file is not part of the release only when the list was read", () => {
+    const [r] = verdicts(events, { r1: honest }, {}, [entryFor("other.bin", utf8ToBin("x"))], [undefined]);
+    expect(r.unchecked).toBe(false);
+    expect(r.rootOk).toBe(true);
   });
 });

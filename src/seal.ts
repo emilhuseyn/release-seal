@@ -2,6 +2,7 @@
 // A release is a manifest of files. Its Merkle root (RFC 6962 tree hash, SHA-256) is the 32-byte commitment of the project's
 // mutable NFT. The same transaction carries an OP_RETURN: <"RSEAL"> <0x01> <kind> <release version> <manifest URL>.
 import { binToHex, encodeDataPush, hexToBin, Opcodes, sha256, utf8ToBin, binToUtf8 } from "@bitauth/libauth";
+import type { SealEvent } from "./chain";
 
 export const PREFIX = utf8ToBin("RSEAL");
 export const PROTOCOL = 1;
@@ -135,6 +136,14 @@ export const parseManifest = (text: string): Manifest | undefined => {
   return { protocol: PROTOCOL, project: String(m.project ?? ""), version: String(m.version ?? ""), files };
 };
 
+// A hosted seal.json is used only when its root is the on-chain commitment (hex). "wrong" means it parsed but was replaced,
+// so the page can say so and still accept an honest copy the user drops.
+export const readManifest = (text: string, commitment: string): Manifest | "wrong" | undefined => {
+  const m = parseManifest(text);
+  if (!m) return undefined;
+  return binToHex(merkleRoot(m.files)) === commitment ? m : "wrong";
+};
+
 // With no file list at all: the dropped files are exactly the release when their own root is the commitment.
 export const isWholeRelease = (dropped: FileEntry[], commitment: Uint8Array) => {
   const want = binToHex(commitment);
@@ -154,4 +163,44 @@ export const checkFiles = (manifest: Manifest, commitment: Uint8Array, dropped: 
     return { name: d.name, status: exp.sha256 === d.sha256 && exp.size === d.size ? "match" : "changed", expected: exp };
   });
   return { rootOk, checks };
+};
+
+export interface Result {
+  event: SealEvent;
+  rootOk: boolean;
+  checks: Check[];
+  note?: string;
+  unchecked?: boolean;
+}
+
+// Per release, newest first, the chain's commitment decides which list counts: the hosted one (kept only if its root matched),
+// a dropped seal.json, or the dropped files themselves. lists[i] is the parsed seal.json for all[i], if that file was one.
+export const verdicts = (
+  events: SealEvent[],
+  manifests: Record<string, Manifest>,
+  wrong: Record<string, boolean>,
+  all: FileEntry[],
+  lists: (Manifest | undefined)[],
+): Result[] => {
+  const dropped = all.filter((_, i) => !lists[i]);
+  const out: Result[] = [];
+  const missing: SealEvent[] = [];
+  for (const event of events.filter((e) => e.kind === "release").reverse()) {
+    const commitment = hexToBin(event.commitment);
+    const m = manifests[event.txid] ?? lists.find((l) => l && binToHex(merkleRoot(l.files)) === event.commitment);
+    if (m) {
+      const r = checkFiles(m, commitment, dropped);
+      const note = wrong[event.txid] ? `The file list at ${event.manifestUrl} does not match the chain and was ignored; the dropped seal.json does.` : undefined;
+      if (r.checks.some((c) => c.status !== "unknown")) out.push({ event, ...r, note });
+    } else if (isWholeRelease(dropped, commitment)) {
+      const note = "No file list was needed: together these files are exactly the sealed release.";
+      out.push({ event, rootOk: true, note, checks: dropped.map((d) => ({ name: d.name, status: "match", expected: d })) });
+    } else missing.push(event);
+  }
+  if (out.length) return out;
+  const event = missing[0] ?? events[events.length - 1];
+  const unread = wrong[event.txid] ? "" : `The file list of ${event.version} could not be read from ${event.manifestUrl}. `;
+  const note = missing.length ? `${unread}Drop its seal.json from any copy together with the files, or drop every file of the release.` : undefined;
+  const checks: Check[] = dropped.map((d) => ({ name: d.name, status: "unknown" }));
+  return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks }];
 };
