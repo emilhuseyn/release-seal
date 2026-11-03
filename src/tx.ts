@@ -30,7 +30,9 @@ export interface UnsignedSealTx {
 
 export const NFT_SATS = 1000n;
 export const DUST = 546n;
-const P2PKH_UNLOCK_SIZE = 100;
+// Worst case over both signature types the wallet may pick: ECDSA (push + 72-byte DER + sighash byte) and the pubkey push.
+// Schnorr needs 100, so 108 costs 8 sats per input and keeps an ECDSA-signing wallet above the 1 sat/byte relay floor.
+const P2PKH_UNLOCK_SIZE = 108;
 
 const sizeWith = (tx: Transaction, unlockSize: number) =>
   encodeTransaction({ ...tx, inputs: tx.inputs.map((i) => ({ ...i, unlockingBytecode: new Uint8Array(unlockSize) })) }).length;

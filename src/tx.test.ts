@@ -109,6 +109,54 @@ describe("buildSealTx", () => {
     expect(vm.verify({ sourceOutputs: g.sourceOutputs, transaction: sign(g.transaction, g.sourceOutputs) })).toBe(true);
   });
 
+  it("the fee still covers 1 sat/byte when the wallet signs with ECDSA instead of Schnorr", () => {
+    const ecdsa = walletTemplateToCompilerBCH({
+      ...walletTemplateP2pkhNonHd,
+      scripts: {
+        ...walletTemplateP2pkhNonHd.scripts,
+        unlock: { ...walletTemplateP2pkhNonHd.scripts.unlock, script: "<key.ecdsa_signature.all_outputs>\n<key.public_key>" },
+      },
+    } as typeof walletTemplateP2pkhNonHd);
+    const signEcdsa = (transaction: Transaction, sourceOutputs: Output[]) => {
+      const signed = { ...transaction, inputs: transaction.inputs.map((i) => ({ ...i })) };
+      signed.inputs.forEach((input, inputIndex) => {
+        const r = ecdsa.generateBytecode({
+          data: { keys: { privateKeys: { key } }, compilationContext: { inputIndex, sourceOutputs, transaction: signed } },
+          scriptId: "unlock",
+        });
+        if (!r.success) throw new Error(JSON.stringify(r.errors));
+        input.unlockingBytecode = r.bytecode;
+      });
+      return signed;
+    };
+    const check = (u: { transaction: Transaction; sourceOutputs: Output[]; fee: bigint }) => {
+      const s = signEcdsa(u.transaction, u.sourceOutputs);
+      expect(s.inputs[0].unlockingBytecode.length).toBeGreaterThan(100);
+      expect(vm.verify({ sourceOutputs: u.sourceOutputs, transaction: s })).toBe(true);
+      expect(u.fee).toBeGreaterThanOrEqual(BigInt(encodeTransaction(s).length));
+      return s;
+    };
+
+    const p = buildPrepTx({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 5000n), coin("ab".repeat(32), 7, 3000n)] });
+    const prepTxid = binToHex(hashTransactionUiOrder(encodeTransaction(check(p))));
+    const g = buildSealTx({
+      record: { kind: "genesis", version: "demo-project", manifestUrl: "https://example.org/seal" },
+      commitment: root1,
+      publisherLock: lock,
+      funding: [coin(prepTxid, 0, p.value), coin("ac".repeat(32), 2, 4000n)],
+    });
+    const gs = check(g);
+    const gTxid = binToHex(hashTransactionUiOrder(encodeTransaction(gs)));
+    const r = buildSealTx({
+      record: { kind: "revoke", version: "demo-project", manifestUrl: "https://example.org/seal" },
+      commitment: root2,
+      publisherLock: lock,
+      funding: [{ txid: gTxid, vout: 2, satoshis: gs.outputs[2].valueSatoshis }],
+      nft: { txid: gTxid, vout: 0, satoshis: NFT_SATS, token: gs.outputs[0].token },
+    });
+    check(r);
+  });
+
   it("a prep coin too small for genesis is refused before anything is signed", () => {
     expect(() => buildPrepTx({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 1700n)] })).toThrow(/Not enough/);
   });
