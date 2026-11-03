@@ -9,7 +9,7 @@ import { buildSealTx, wizardRequest } from "./tx";
 
 // Banner links required by the BLAZE rules. Emil fills these before submission.
 const BANNER = {
-  deck: "",
+  deck: "https://docs.google.com/presentation/d/1EnzpFVsCAQISefbwXQt52dGJBMMQL3d8ZGV9NUJ_pzY/edit?usp=sharing",
   repo: "https://github.com/emilhuseyn/release-seal",
   emberAddress: "bitcoincash:zzrq9aavqx57w49galdt3paav9lnk3zy9q6hszc6q0",
 };
