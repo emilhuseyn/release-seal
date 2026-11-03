@@ -112,7 +112,14 @@ export default function Publish() {
               No wallet yet. A code older than 30 seconds may no longer pair. <button onClick={freshQr}>New QR code</button>
             </p>
           )}
-          <WizardConnectQRDialog show={showQr && !!wc.uri} onClose={() => setShowQr(false)} uri={wc.uri ?? ""} qrUri={wc.qrUri ?? ""} title="Scan with your wallet" />
+          <WizardConnectQRDialog
+            show={showQr && !!wc.uri}
+            onClose={() => setShowQr(false)}
+            uri={wc.uri ?? ""}
+            qrUri={wc.qrUri ?? ""}
+            title="Scan with your wallet"
+            subtitle={stale ? "This code is over 30 seconds old and may not pair. Close this and press New QR code." : undefined}
+          />
         </div>
       ) : (
         <div className="card">
