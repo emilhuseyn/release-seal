@@ -29,11 +29,19 @@ export default function Publish() {
     return () => clearTimeout(t);
   }, [ready, showQr, wc.uri]);
 
+  // connect() refuses while the hook's state still reads "connecting", so the new pairing starts once disconnect has set it to idle.
+  const [renew, setRenew] = useState(false);
+  const { state: wcState, connect } = wc;
+  useEffect(() => {
+    if (!renew || wcState !== "idle") return;
+    setRenew(false);
+    if (connect()) setShowQr(true);
+  }, [renew, wcState, connect]);
+
   const freshQr = async () => {
     await wc.disconnect();
     setStale(false);
-    wc.connect();
-    setShowQr(true);
+    setRenew(true);
   };
 
   useEffect(() => {
