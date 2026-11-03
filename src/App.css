@@ -133,3 +133,13 @@ input {
 .tag {
   font-size: 0.8rem;
 }
+
+.steps {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.steps li + li {
+  margin-top: 6px;
+}

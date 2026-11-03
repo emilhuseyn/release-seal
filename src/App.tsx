@@ -93,6 +93,22 @@ function Verify() {
           <a href="./demo/v1.0.0/hello-seal-1.0.0.zip">sealed zip</a> or a <a href="./demo/tampered/hello-seal-1.0.0.zip">tampered copy</a>.
         </p>
       )}
+      {!events && !busy && (
+        <div className="card">
+          <h3>How it works</h3>
+          <ol className="steps">
+            <li>
+              A maintainer seals each release from a wallet. The seal is a CashTokens NFT whose commitment is the root hash of the
+              release files. Only the holder of that NFT can seal the next version or revoke a bad one.
+            </li>
+            <li>
+              You open the project by its id (projects share a link ending in <code>?project=</code>) and drop the files you
+              downloaded. They are hashed in your browser and compared with the root on Bitcoin Cash. No wallet, no upload.
+            </li>
+            <li>If someone swapped the installer on the download site, its hash no longer matches the seal and the page says so in red.</li>
+          </ol>
+        </div>
+      )}
       {busy &&<p className="muted">{busy}</p>}
       {error && <p className="bad">{error}</p>}
       {events && (
