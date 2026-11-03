@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Poisoned Download</title>
+<meta name="description" content="A short story about a hacked download page, and how a seal on Bitcoin Cash catches the swap." />
+<link rel="icon" type="image/svg+xml" href="../seal.svg" />
+<style>
+  :root {
+    --bg: #0b1210;
+    --card: #121c19;
+    --line: #23332e;
+    --fg: #e6f2ee;
+    --muted: #8fa69e;
+    --accent: #0ac18e;
+    --bad: #ff5d5d;
+    --gold: #f5c451;
+    --night: #0d1630;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 0 16px 64px; }
+  .banner {
+    display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 0;
+    font-size: 0.85rem; color: var(--muted); border-bottom: 1px solid var(--line);
+  }
+  .banner a { color: var(--accent); text-decoration: none; }
+  header { padding: 48px 0 24px; }
+  header h1 { margin: 0 0 8px; font-size: clamp(2rem, 7vw, 3.2rem); line-height: 1.1; }
+  header p { margin: 0; color: var(--muted); font-size: 1.05rem; }
+  .scroll-hint { margin-top: 20px; color: var(--accent); font-size: 0.9rem; }
+  .panel {
+    margin: 28px 0; padding: 0; background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; overflow: hidden;
+    opacity: 0; transform: translateY(24px); transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+  .panel.in { opacity: 1; transform: none; }
+  .panel svg { display: block; width: 100%; height: auto; }
+  .panel .text { padding: 18px 20px 22px; }
+  .panel .num { color: var(--accent); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .panel h2 { margin: 4px 0 8px; font-size: 1.3rem; }
+  .panel p { margin: 0; }
+  .panel p + p { margin-top: 10px; }
+  .muted { color: var(--muted); }
+  .files { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 20px; }
+  .file {
+    font: inherit; color: var(--fg); text-align: left; cursor: pointer;
+    background: #0f1714; border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+  }
+  .file:hover, .file:focus-visible { border-color: var(--accent); outline: none; }
+  .file b { display: block; font-size: 0.95rem; }
+  .file span { color: var(--muted); font-size: 0.85rem; }
+  .sealbox {
+    margin: 0 20px; padding: 12px 14px; border-radius: 10px; background: #0f1714;
+    border: 1px dashed var(--accent); font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere;
+  }
+  .sealbox code, .result code { color: var(--fg); }
+  .result { min-height: 112px; padding: 16px 20px 22px; }
+  .stamp {
+    display: inline-block; padding: 8px 14px; border: 3px solid currentColor; border-radius: 8px;
+    font-weight: 800; letter-spacing: 0.04em; transform: rotate(-3deg) scale(0.6); opacity: 0;
+    transition: transform 0.35s cubic-bezier(.2, 1.6, .4, 1), opacity 0.2s;
+  }
+  .stamp.show { transform: rotate(-3deg) scale(1); opacity: 1; }
+  .stamp.good { color: var(--accent); }
+  .stamp.bad { color: var(--bad); }
+  .result p { margin: 10px 0 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 20px 20px 0; }
+  .tile { background: #0f1714; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 0.92rem; }
+  .tile b { display: block; color: var(--accent); font-size: 1.4rem; margin-bottom: 4px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; padding: 20px; }
+  .cta a {
+    text-decoration: none; padding: 10px 16px; border-radius: 10px; font-weight: 600;
+    border: 1px solid var(--accent); color: var(--accent);
+  }
+  .cta a.primary { background: var(--accent); color: #04110c; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 0.85rem; }
+  @media (max-width: 560px) {
+    .files, .tiles { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .panel, .stamp { transition: none; }
+    .anim { animation: none !important; }
+  }
+  @keyframes swapOut { 0%, 35% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  @keyframes swapIn { 0%, 35% { opacity: 0; } 50%, 100% { opacity: 1; } }
+  @keyframes bounce { 0%, 100% { transform: translateX(0); } 45% { transform: translateX(-8px); } 60% { transform: translateX(6px); } }
+  @keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  .panel.in .swap-out { animation: swapOut 4s ease-in-out infinite alternate; }
+  .panel.in .swap-in { animation: swapIn 4s ease-in-out infinite alternate; }
+  .panel.in .bounce { animation: bounce 2.4s ease-in-out infinite; }
+  .panel.in .pulse { animation: pulse 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<main>
+  <div class="banner">
+    <a href="../">Release Seal app</a>
+    <a href="https://github.com/emilhuseyn/release-seal">Source</a>
+    <span>BCH BLAZE 2026, Media track</span>
+  </div>
+
+  <header>
+    <h1>The Poisoned Download</h1>
+    <p>A two-minute story about a hacked website, a swapped installer, and the one place the attacker could not reach.</p>
+    <div class="scroll-hint">Scroll down</div>
+  </header>
+
+  <!-- 1 -->
+  <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="Maya at her laptop, downloading Calc 2.4 from the project website, with a checksum printed beside the button.">
+      <defs>
+        <linearGradient id="day" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16302a"/><stop offset="1" stop-color="#0f1714"/></linearGradient>
+      </defs>
+      <rect width="320" height="190" fill="url(#day)"/>
+      <rect x="0" y="150" width="320" height="40" fill="#1b2a25"/>
+      <!-- Maya -->
+      <circle cx="58" cy="78" r="16" fill="#f0c9a5"/>
+      <path d="M42 74 q16 -26 32 0 q-4 -12 -16 -12 q-12 0 -16 12z" fill="#3b2a20"/>
+      <rect x="40" y="96" width="36" height="54" rx="12" fill="#0ac18e"/>
+      <!-- laptop -->
+      <rect x="110" y="58" width="150" height="92" rx="8" fill="#22302c" stroke="#3a4f48"/>
+      <rect x="118" y="66" width="134" height="76" rx="4" fill="#f4f7f6"/>
+      <rect x="118" y="66" width="134" height="12" fill="#dfe7e4"/>
+      <text x="124" y="75" font-size="7" fill="#5b6b66" font-family="monospace">https://calc.dev/download</text>
+      <rect x="132" y="88" width="106" height="20" rx="5" fill="#0ac18e"/>
+      <text x="185" y="101" font-size="8.5" fill="#04110c" font-weight="700" text-anchor="middle" font-family="sans-serif">Download Calc 2.4</text>
+      <text x="185" y="124" font-size="7" fill="#33443f" text-anchor="middle" font-family="monospace">SHA-256  9f2c ... 41</text>
+      <rect x="96" y="150" width="178" height="6" rx="3" fill="#3a4f48"/>
+    </svg>
+    <div class="text">
+      <div class="num">1</div>
+      <h2>Maya needs a calculator for her shop</h2>
+      <p>She downloads Calc 2.4 from the project's own website. She is careful, so she compares the checksum printed beside the button. It matches.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="At night, a hooded attacker swaps the installer on the website and edits the checksum next to it.">
+      <rect width="320" height="190" fill="#0d1630"/>
+      <circle cx="270" cy="34" r="14" fill="#e8e3c8"/><circle cx="276" cy="30" r="12" fill="#0d1630"/>
+      <g fill="#c9d4ff" opacity="0.7"><circle cx="40" cy="22" r="1.2"/><circle cx="96" cy="40" r="1"/><circle cx="150" cy="18" r="1.3"/><circle cx="210" cy="44" r="1"/><circle cx="300" cy="80" r="1"/></g>
+      <text x="22" y="40" font-size="11" fill="#8fa3d9" font-family="monospace">03:12</text>
+      <!-- attacker -->
+      <path d="M40 160 q0 -58 34 -58 q34 0 34 58z" fill="#1d2440"/>
+      <path d="M52 112 q22 -40 44 0 q-6 22 -22 22 q-16 0 -22 -22z" fill="#262f52"/>
+      <rect x="64" y="112" width="20" height="8" rx="4" fill="#ff5d5d" class="pulse"/>
+      <!-- web page -->
+      <rect x="136" y="62" width="160" height="96" rx="6" fill="#f4f7f6"/>
+      <rect x="136" y="62" width="160" height="12" fill="#dfe7e4"/>
+      <text x="142" y="71" font-size="7" fill="#5b6b66" font-family="monospace">calc.dev/download</text>
+      <g class="swap-out">
+        <rect x="150" y="84" width="40" height="48" rx="4" fill="#0ac18e"/>
+        <text x="170" y="112" font-size="9" text-anchor="middle" fill="#04110c" font-family="sans-serif" font-weight="700">2.4</text>
+        <text x="216" y="104" font-size="7.5" fill="#33443f" font-family="monospace">9f2c ... 41</text>
+      </g>
+      <g class="swap-in">
+        <rect x="150" y="84" width="40" height="48" rx="4" fill="#ff5d5d"/>
+        <circle cx="170" cy="104" r="8" fill="#fff"/><rect x="166" y="110" width="8" height="6" fill="#fff"/>
+        <circle cx="167" cy="103" r="2" fill="#ff5d5d"/><circle cx="173" cy="103" r="2" fill="#ff5d5d"/>
+        <text x="216" y="104" font-size="7.5" fill="#b3261e" font-family="monospace">d41a ... 07</text>
+      </g>
+      <text x="200" y="122" font-size="6" fill="#5b6b66" font-family="sans-serif">checksum on the same page</text>
+      <path d="M112 112 q12 -10 22 -2" stroke="#ff5d5d" stroke-width="2" fill="none" stroke-dasharray="3 3"/>
+    </svg>
+    <div class="text">
+      <div class="num">2</div>
+      <h2>03:12. Somebody else visits the website</h2>
+      <p>An attacker takes over the download page. He swaps the installer for one with a little extra inside, and he edits the checksum next to it, in one go.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="The next customer compares checksums. Both say d41a...07, so the check passes, but the file is the poisoned one.">
+      <rect width="320" height="190" fill="#1a1414"/>
+      <rect x="30" y="34" width="260" height="122" rx="10" fill="#f4f7f6"/>
+      <text x="48" y="62" font-size="8" fill="#5b6b66" font-family="sans-serif">The website says</text>
+      <text x="48" y="78" font-size="11" fill="#1b2a25" font-family="monospace">d41a ... 07</text>
+      <text x="48" y="104" font-size="8" fill="#5b6b66" font-family="sans-serif">Your file</text>
+      <text x="48" y="120" font-size="11" fill="#1b2a25" font-family="monospace">d41a ... 07</text>
+      <circle cx="160" cy="96" r="14" fill="#0ac18e"/>
+      <path d="M153 96 l5 5 l9 -11" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <rect x="206" y="58" width="56" height="70" rx="6" fill="#ff5d5d"/>
+      <circle cx="234" cy="88" r="12" fill="#fff"/><rect x="228" y="97" width="12" height="9" fill="#fff"/>
+      <circle cx="229" cy="86" r="3" fill="#ff5d5d"/><circle cx="239" cy="86" r="3" fill="#ff5d5d"/>
+      <text x="234" y="122" font-size="7" fill="#fff" text-anchor="middle" font-family="sans-serif">calc-2.4.exe</text>
+      <text x="160" y="146" font-size="8" fill="#b3261e" text-anchor="middle" font-family="sans-serif" font-weight="700">The check passes. The file is poisoned.</text>
+    </svg>
+    <div class="text">
+      <div class="num">3</div>
+      <h2>Every check still passes</h2>
+      <p>The next customer is careful too, and the checksum matches, because the website held both the file and the proof. Whoever controls the website controls both.</p>
+      <p class="muted">This has happened to real projects. In 2016 the Linux Mint website and the Transmission website both served poisoned downloads after a break-in.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="With Release Seal, the release is sealed in a Bitcoin Cash transaction. The attacker bounces off a lock in front of the chain.">
+      <defs>
+        <linearGradient id="chain" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0ac18e"/><stop offset="1" stop-color="#078a66"/></linearGradient>
+      </defs>
+      <rect width="320" height="190" fill="#0f1a17"/>
+      <!-- blocks -->
+      <g font-family="monospace" font-size="6.5" fill="#04110c">
+        <rect x="18" y="104" width="64" height="44" rx="6" fill="#16302a" stroke="#2c4a42"/>
+        <rect x="94" y="104" width="64" height="44" rx="6" fill="url(#chain)"/>
+        <rect x="170" y="104" width="64" height="44" rx="6" fill="#16302a" stroke="#2c4a42"/>
+        <rect x="246" y="104" width="56" height="44" rx="6" fill="#16302a" stroke="#2c4a42"/>
+        <text x="126" y="120" text-anchor="middle" font-weight="700">SEAL</text>
+        <text x="126" y="131" text-anchor="middle">release 2.4</text>
+        <text x="126" y="141" text-anchor="middle">9f2c ... 41</text>
+      </g>
+      <path d="M82 126 h12 M158 126 h12 M234 126 h12" stroke="#2c4a42" stroke-width="3"/>
+      <!-- token badge -->
+      <circle cx="126" cy="76" r="18" fill="#f5c451"/>
+      <circle cx="126" cy="76" r="12" fill="none" stroke="#7a5b0c" stroke-width="2"/>
+      <path d="M120 76 l4 4 l8 -9" stroke="#7a5b0c" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <text x="152" y="72" font-size="7" fill="#e6f2ee" font-family="sans-serif">project token</text>
+      <text x="152" y="82" font-size="7" fill="#8fa69e" font-family="sans-serif">only its holder can seal</text>
+      <!-- lock + attacker -->
+      <g class="bounce">
+        <path d="M282 84 q0 -28 18 -28 q18 0 18 28z" fill="#1d2440"/>
+        <rect x="293" y="66" width="14" height="5" rx="2.5" fill="#ff5d5d"/>
+      </g>
+      <rect x="252" y="64" width="20" height="16" rx="3" fill="#8fa69e"/>
+      <path d="M256 64 v-6 q6 -9 12 0 v6" stroke="#8fa69e" stroke-width="3" fill="none"/>
+      <text x="16" y="30" font-size="9" fill="#0ac18e" font-family="sans-serif" font-weight="700">The same night, with Release Seal</text>
+    </svg>
+    <div class="text">
+      <div class="num">4</div>
+      <h2>Now the same night, with a seal</h2>
+      <p>When the maintainer shipped 2.4, she sealed the file list in a Bitcoin Cash transaction that only her project's token can make. The attacker can still take the website. He cannot edit the seal.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="panel" id="try">
+    <div class="text">
+      <div class="num">5</div>
+      <h2>Try it yourself</h2>
+      <p>Pick a download. Your browser hashes it and compares it with the sealed release. Nothing leaves this page.</p>
+    </div>
+    <div class="sealbox">Sealed on chain for Calc 2.4: <code id="sealed">computing...</code></div>
+    <div class="files">
+      <button class="file" data-kind="original"><b>calc-2.4.exe</b><span>from a mirror that was not touched</span></button>
+      <button class="file" data-kind="poisoned"><b>calc-2.4.exe</b><span>from the hacked website</span></button>
+    </div>
+    <div class="result" aria-live="polite">
+      <span class="stamp" id="stamp"></span>
+      <p id="detail" class="muted">Choose a file above.</p>
+    </div>
+    <div class="text muted" style="padding-top:0; font-size:0.85rem">Demo files, so the seal here is computed on the page. The real checker reads the seal from Bitcoin Cash.</div>
+  </section>
+
+  <!-- 6 -->
+  <section class="panel">
+    <div class="text">
+      <div class="num">6</div>
+      <h2>Why Bitcoin Cash</h2>
+      <p>A checksum is only useful where the attacker cannot write. Bitcoin Cash makes that place cheap and open to everyone.</p>
+    </div>
+    <div class="tiles">
+      <div class="tile"><b>&lt; 1 cent</b>is what a seal costs in fees on Bitcoin Cash.</div>
+      <div class="tile"><b>1 token</b>per project, a CashToken. Hand it over and you hand over the project.</div>
+      <div class="tile"><b>0 accounts</b>needed to check. A browser and the file are enough.</div>
+    </div>
+    <div class="cta">
+      <a class="primary" href="../">Check or seal a release</a>
+      <a href="https://github.com/emilhuseyn/release-seal">Read the source</a>
+    </div>
+  </section>
+
+  <footer>
+    BCH BLAZE 2026, Media track. Made by Emil Huseynov, drawn in code with AI assistance. No stock art, no trackers.
+  </footer>
+</main>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) e.target.classList.add("in");
+  }, { threshold: 0.2 });
+  document.querySelectorAll(".panel").forEach((p) => io.observe(p));
+
+  const files = {
+    original: "Calc 2.4 installer, built and signed off by the maintainer.",
+    poisoned: "Calc 2.4 installer, built and signed off by the maintainer.\u0000plus a small extra that sends your keystrokes away",
+  };
+  const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const sha256 = async (s) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+  const short = (h) => `${h.slice(0, 8)} ... ${h.slice(-6)}`;
+
+  (async () => {
+    const sealed = await sha256(files.original);
+    document.getElementById("sealed").textContent = short(sealed);
+    const stamp = document.getElementById("stamp");
+    const detail = document.getElementById("detail");
+    document.querySelectorAll(".file").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const got = await sha256(files[b.dataset.kind]);
+        const ok = got === sealed;
+        stamp.className = "stamp";
+        void stamp.offsetWidth;
+        stamp.textContent = ok ? "MATCHES THE SEAL" : "DOES NOT MATCH";
+        stamp.classList.add(ok ? "good" : "bad", "show");
+        detail.innerHTML = ok
+          ? `Your file <code>${short(got)}</code> is the one the maintainer sealed. Safe to install.`
+          : `Your file <code>${short(got)}</code> is not the sealed <code>${short(sealed)}</code>. The website lied. Do not install.`;
+      })
+    );
+  })();
+</script>
+</body>
+</html>

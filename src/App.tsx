@@ -282,6 +282,7 @@ export default function App() {
       <div className="banner">
         <a href={BANNER.deck || undefined}>Deck</a>
         <a href={BANNER.repo || undefined}>Source</a>
+        <a href="./story/">Story</a>
         <span>Donate EMBER2026: {BANNER.emberAddress || "address pending"}</span>
       </div>
       <header>
