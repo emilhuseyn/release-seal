@@ -6,7 +6,7 @@ export const readFiles = async (list: FileList | File[]) =>
 
 export const short = (s: string, n = 10) => (s.length > 2 * n ? `${s.slice(0, n)}...${s.slice(-n)}` : s);
 
-export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[]) => void; label: string }) {
+export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[], raw: File[]) => void; label: string }) {
   const [over, setOver] = useState(false);
   return (
     <label
@@ -19,10 +19,11 @@ export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[]) => void
       onDrop={async (e) => {
         e.preventDefault();
         setOver(false);
-        onFiles(await readFiles(e.dataTransfer.files));
+        const raw = [...e.dataTransfer.files];
+        onFiles(await readFiles(raw), raw);
       }}
     >
-      <input type="file" multiple hidden onChange={async (e) => e.target.files && onFiles(await readFiles(e.target.files))} />
+      <input type="file" multiple hidden onChange={async (e) => e.target.files && onFiles(await readFiles(e.target.files), [...e.target.files])} />
       <span>{label}</span>
       <small>Files are hashed in your browser. Nothing is uploaded.</small>
     </label>

@@ -1,6 +1,6 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, merkleRoot, type Manifest } from "./seal";
+import { checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, type Manifest } from "./seal";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
 
@@ -80,5 +80,35 @@ describe("checkFiles", () => {
 
   it("finds duplicate names", () => {
     expect(findDuplicates([...files, files[0]])).toEqual(["a.tar.gz"]);
+  });
+});
+
+describe("without a fetched file list", () => {
+  const root = merkleRoot(files);
+
+  it("reads a dropped seal.json and normalises the hashes", () => {
+    const text = JSON.stringify({ protocol: 1, project: "p", version: "v1", files: files.map((f) => ({ ...f, sha256: f.sha256.toUpperCase() })) });
+    const m = parseManifest(text)!;
+    expect(binToHex(merkleRoot(m.files))).toBe(binToHex(root));
+    expect(checkFiles(m, root, [files[3]]).checks[0].status).toBe("match");
+  });
+
+  it("refuses JSON that is not a version 1 file list", () => {
+    expect(parseManifest("not json")).toBeUndefined();
+    expect(parseManifest(JSON.stringify({ protocol: 2, files }))).toBeUndefined();
+    expect(parseManifest(JSON.stringify({ protocol: 1, files: [{ name: "a", size: "1", sha256: files[0].sha256 }] }))).toBeUndefined();
+    expect(parseManifest(JSON.stringify({ protocol: 1, files: [{ name: "a", size: 1, sha256: "00" }] }))).toBeUndefined();
+  });
+
+  it("accepts the full set of files as the release, renamed downloads included", () => {
+    expect(isWholeRelease([...files].reverse(), root)).toBe(true);
+    expect(isWholeRelease(files.map((f, i) => (i ? f : { ...f, name: "a (1).tar.gz" })), root)).toBe(true);
+  });
+
+  it("refuses a partial, extended or changed set", () => {
+    expect(isWholeRelease(files.slice(1), root)).toBe(false);
+    expect(isWholeRelease([...files, entryFor("x", utf8ToBin("x"))], root)).toBe(false);
+    expect(isWholeRelease(files.map((f, i) => (i === 1 ? entryFor(f.name, utf8ToBin("evil")) : f)), root)).toBe(false);
+    expect(isWholeRelease([], merkleRoot([]))).toBe(false);
   });
 });

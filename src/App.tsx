@@ -1,9 +1,9 @@
-import { hexToBin } from "@bitauth/libauth";
+import { binToHex, hexToBin } from "@bitauth/libauth";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
-import { checkFiles, type Check, type FileEntry, type Manifest } from "./seal";
+import { checkFiles, isWholeRelease, merkleRoot, parseManifest, type Check, type FileEntry, type Manifest } from "./seal";
 import { DropZone, short } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
@@ -23,6 +23,7 @@ interface Result {
   event: SealEvent;
   rootOk: boolean;
   checks: Check[];
+  note?: string;
 }
 
 function Verify() {
@@ -66,16 +67,30 @@ function Verify() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const verify = (dropped: FileEntry[]) => {
+  const verify = async (all: FileEntry[], raw: File[]) => {
     if (!events) return;
+    // A dropped seal.json stands in for a list the page could not fetch (site down or taken over, no CORS); the chain decides.
+    const lists = await Promise.all(raw.map(async (f) => (/\.json$/i.test(f.name) && f.size < 1e6 ? parseManifest(await f.text()) : undefined)));
+    const dropped = all.filter((_, i) => !lists[i]);
     const out: Result[] = [];
+    const missing: SealEvent[] = [];
     for (const event of events.filter((e) => e.kind === "release").reverse()) {
-      const m = manifests[event.txid];
-      if (!m) continue;
-      const r = checkFiles(m, hexToBin(event.commitment), dropped);
-      if (r.checks.some((c) => c.status !== "unknown")) out.push({ event, ...r });
+      const commitment = hexToBin(event.commitment);
+      const m = manifests[event.txid] ?? lists.find((l) => l && binToHex(merkleRoot(l.files)) === event.commitment);
+      if (m) {
+        const r = checkFiles(m, commitment, dropped);
+        if (r.checks.some((c) => c.status !== "unknown")) out.push({ event, ...r });
+      } else if (isWholeRelease(dropped, commitment)) {
+        const note = "No file list was needed: together these files are exactly the sealed release.";
+        out.push({ event, rootOk: true, note, checks: dropped.map((d) => ({ name: d.name, status: "match", expected: d })) });
+      } else missing.push(event);
     }
-    setResults(out.length ? out : [{ event: events[events.length - 1], rootOk: true, checks: dropped.map((d) => ({ name: d.name, status: "unknown" })) }]);
+    if (out.length) return setResults(out);
+    const event = missing[0] ?? events[events.length - 1];
+    const note = missing.length
+      ? `The file list of ${event.version} could not be read from ${event.manifestUrl}. Drop its seal.json from any copy together with the files, or drop every file of the release.`
+      : undefined;
+    setResults([{ event, rootOk: true, note, checks: dropped.map((d) => ({ name: d.name, status: "unknown" })) }]);
   };
 
   const latest = events?.filter((e) => e.kind === "release").at(-1);
@@ -130,6 +145,7 @@ function Verify() {
             {r.event.version} {r.event.revoked && <span className="tag bad">revoked by the publisher</span>}
           </h3>
           {!r.rootOk && <p className="bad">The manifest at {r.event.manifestUrl} does not match the sealed root. Do not trust it.</p>}
+          {r.note && <p className="muted">{r.note}</p>}
           {r.checks.map((c) => (
             <p key={c.name} className={c.status === "match" && r.rootOk && !r.event.revoked ? "good" : c.status === "unknown" ? "muted" : "bad"}>
               {c.status === "match" ? "Matches" : c.status === "changed" ? "DIFFERENT from" : "Not part of"} {c.expected?.name ?? "this release"}: {c.name}

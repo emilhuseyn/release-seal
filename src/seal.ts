@@ -120,6 +120,29 @@ export interface Check {
 // A second download of the same file is saved as "name (1).ext" (Chrome) or "name(1).ext" (Firefox); match it to "name.ext".
 export const undupName = (name: string) => name.replace(/ ?\(\d+\)(?=\.|$)/, "");
 
+// Reads a seal.json from anywhere (a mirror, a release asset, the user's disk). Only its root against the chain makes it trusted.
+export const parseManifest = (text: string): Manifest | undefined => {
+  let m;
+  try {
+    m = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (m?.protocol !== PROTOCOL || !Array.isArray(m.files)) return undefined;
+  const ok = (f: FileEntry) => typeof f?.name === "string" && Number.isSafeInteger(f.size) && /^[0-9a-f]{64}$/i.test(f.sha256);
+  if (!m.files.every(ok)) return undefined;
+  const files = m.files.map((f: FileEntry) => ({ name: f.name, size: f.size, sha256: f.sha256.toLowerCase() }));
+  return { protocol: PROTOCOL, project: String(m.project ?? ""), version: String(m.version ?? ""), files };
+};
+
+// With no file list at all: the dropped files are exactly the release when their own root is the commitment.
+export const isWholeRelease = (dropped: FileEntry[], commitment: Uint8Array) => {
+  const want = binToHex(commitment);
+  return [dropped, dropped.map((d) => ({ ...d, name: undupName(d.name) }))].some(
+    (set) => set.length > 0 && !findDuplicates(set).length && binToHex(merkleRoot(set)) === want,
+  );
+};
+
 // Compares dropped files with a manifest whose root matches the on-chain commitment.
 export const checkFiles = (manifest: Manifest, commitment: Uint8Array, dropped: FileEntry[]) => {
   const rootOk = binToHex(merkleRoot(manifest.files)) === binToHex(commitment);
