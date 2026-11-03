@@ -14,6 +14,10 @@ main {
   color: var(--muted);
 }
 
+.banner span {
+  overflow-wrap: anywhere;
+}
+
 header h1 {
   margin: 24px 0 4px;
   font-size: 2rem;
