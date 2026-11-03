@@ -1,54 +1,50 @@
-# React + TypeScript + Vite
+# Release Seal
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Check that the file you downloaded is the file the maintainer shipped. The proof lives on Bitcoin Cash, not on the download page.
 
-Currently, two official plugins are available:
+Live demo: https://emilhuseyn.github.io/release-seal/
+Built for BCH BLAZE 2026, Mainnet track.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Why
 
-## Expanding the ESLint configuration
+If someone takes over a project's website, they can swap the installer and the checksum printed next to it in one go. A checksum
+only helps if it lives somewhere the attacker cannot edit. Release Seal puts it on Bitcoin Cash, in a transaction that only the
+holder of the project's token can make.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## How it works
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+- A project is a CashTokens category. Its mutable NFT is the right to publish.
+- Sealing a release spends that NFT and recreates it with a new 32-byte commitment: the Merkle root (RFC 6962 tree hash, SHA-256)
+  of the release's file list, with the name, size and SHA-256 of each file.
+- That transaction also carries an OP_RETURN record: `RSEAL`, protocol 1, the kind (create, release or revoke), the version, and a
+  link to the file list (`seal.json`).
+- Checking needs no wallet. The page reads the chain from public Fulcrum servers, follows the NFT from release to release, hashes
+  the dropped files in the browser and compares them with the sealed list. Nothing is uploaded.
+
+Sending the NFT to another address hands the project over. A revoke record marks a bad release, and the page then shows it in red.
+
+## Using it
+
+Verify: open the page with `?project=<token category>` or paste the id, then drop the files you downloaded.
+
+Seal: connect a wallet that speaks WizardConnect (Paytaca or Cashonize), create a project, drop the release files, enter the version
+and the URL where `seal.json` will live, download `seal.json`, host it at that URL, then seal. A seal costs a few hundred satoshis
+in fees, and 1,000 satoshis stay on the NFT.
+
+## Status
+
+Transactions are built in the browser with libauth. Tests sign them with throwaway keys on dummy coins and run them through
+libauth's Bitcoin Cash virtual machine, token rules included. A first mainnet project will be linked here once it is sealed.
+
+## Development
+
+```
+npm install
+npm test
+npm run dev
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Licence
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
-```
+MIT, see LICENSE. The WizardConnect packages are LGPL-3.0 and are used as unmodified libraries.
