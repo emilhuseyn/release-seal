@@ -13,7 +13,7 @@ import {
   type Transaction,
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { walkProject, type Rpc } from "./chain";
+import { broadcast, walkProject, type Rpc } from "./chain";
 import { entryFor, merkleRoot, type SealRecord } from "./seal";
 import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
 
@@ -87,5 +87,37 @@ describe("walkProject", () => {
     expect(events[2].commitment).toBe(binToHex(r(2)));
     expect(events.every((e) => e.publisher === addr(lock))).toBe(true);
     expect(events.map((e) => e.height)).toEqual([900001, 900002, 900003, 900004]);
+  });
+});
+
+describe("broadcast", () => {
+  const tx: Transaction = {
+    version: 2,
+    locktime: 0,
+    inputs: [{ outpointTransactionHash: hexToBin("cd".repeat(32)), outpointIndex: 1, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+    outputs: [{ lockingBytecode: lock, valueSatoshis: 9000n }],
+  };
+  const signed = encodeTransaction(sign(tx, [{ lockingBytecode: lock, valueSatoshis: 10000n }]));
+  const raw = binToHex(signed);
+  const txid = binToHex(hashTransactionUiOrder(signed));
+  const answering = (answer: () => unknown): Rpc => ({ request: async () => answer() });
+
+  it("returns the txid the node echoes", async () => {
+    expect(await broadcast(answering(() => txid), raw)).toBe(txid);
+  });
+  it("treats a transaction the wallet already sent as sent", async () => {
+    const known = answering(() => {
+      throw new Error("the transaction was rejected by network rules.\n\ntxn-already-known");
+    });
+    expect(await broadcast(known, raw)).toBe(txid);
+  });
+  it("passes a real rejection on", async () => {
+    const bad = answering(() => {
+      throw new Error("the transaction was rejected by network rules.\n\nbad-txns-inputs-missingorspent");
+    });
+    await expect(broadcast(bad, raw)).rejects.toThrow("missingorspent");
+  });
+  it("rejects an answer that is not the txid", async () => {
+    await expect(broadcast(answering(() => "00".repeat(32)), raw)).rejects.toThrow("instead of txid");
   });
 });

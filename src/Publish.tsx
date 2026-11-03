@@ -1,7 +1,7 @@
 import { binToHex, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useEffect, useMemo, useState } from "react";
-import { listUnspent } from "./chain";
+import { broadcast, listUnspent } from "./chain";
 import { rpc } from "./rpc";
 import { findDuplicates, merkleRoot, type FileEntry, type Manifest } from "./seal";
 import { buildSealTx, wizardRequest } from "./tx";
@@ -18,6 +18,23 @@ export default function Publish() {
   const [version, setVersion] = useState("");
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState("");
+  const [sent, setSent] = useState("");
+  const [stale, setStale] = useState(false);
+
+  // The dapp gives up on the key exchange 30 s after the relay connects and only logs it, so a QR scanned later never pairs.
+  useEffect(() => {
+    if (ready || !showQr || !wc.uri) return;
+    setStale(false);
+    const t = setTimeout(() => setStale(true), 30_000);
+    return () => clearTimeout(t);
+  }, [ready, showQr, wc.uri]);
+
+  const freshQr = async () => {
+    await wc.disconnect();
+    setStale(false);
+    wc.connect();
+    setShowQr(true);
+  };
 
   useEffect(() => {
     const m = wc.manager;
@@ -43,6 +60,7 @@ export default function Publish() {
   const send = async (kind: "genesis" | "release" | "revoke") => {
     if (!wc.manager || !lock) return;
     setStatus("Building the transaction...");
+    setSent("");
     try {
       const coins = await listUnspent(await rpc(), address);
       const mine = coins.filter((c) => c.token?.nft?.capability === "mutable");
@@ -57,7 +75,11 @@ export default function Publish() {
       });
       setStatus(`Confirm in your wallet. Fee ${u.fee} sats.`);
       const res = await wc.manager.signTransaction(wizardRequest(u, `Release Seal: ${kind} ${kind === "genesis" ? "" : version}`));
-      setStatus(kind === "genesis" ? `Project created. Its id is ${binToHex(u.category)}` : `Sealed. Transaction sent: ${short(res.signedTransaction, 6)}`);
+      setStatus("Signed. Sending to the network...");
+      const txid = await broadcast(await rpc(), res.signedTransaction);
+      setSent(txid);
+      if (kind === "genesis") setProject(binToHex(u.category));
+      setStatus(kind === "genesis" ? `Project created. Its id is ${binToHex(u.category)}` : kind === "revoke" ? `Version ${version} revoked.` : `Version ${version} sealed.`);
     } catch (e) {
       setStatus(String((e as Error).message ?? e));
     }
@@ -85,6 +107,11 @@ export default function Publish() {
             Connect wallet
           </button>
           {wc.error && <p className="bad">{wc.error}</p>}
+          {stale && (
+            <p className="muted">
+              No wallet yet. A code older than 30 seconds may no longer pair. <button onClick={freshQr}>New QR code</button>
+            </p>
+          )}
           <WizardConnectQRDialog show={showQr && !!wc.uri} onClose={() => setShowQr(false)} uri={wc.uri ?? ""} qrUri={wc.qrUri ?? ""} title="Scan with your wallet" />
         </div>
       ) : (
@@ -119,6 +146,14 @@ export default function Publish() {
             </button>
           </div>
           {status && <p className="muted">{status}</p>}
+          {sent && (
+            <p className="muted">
+              Transaction{" "}
+              <a href={`https://blockchair.com/bitcoin-cash/transaction/${sent}`} target="_blank" rel="noreferrer">
+                {short(sent, 8)}
+              </a>
+            </p>
+          )}
         </div>
       )}
     </section>

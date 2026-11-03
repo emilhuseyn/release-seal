@@ -5,6 +5,7 @@
 import {
   binToHex,
   decodeTransaction,
+  hashTransaction,
   hexToBin,
   lockingBytecodeToCashAddress,
   type Transaction,
@@ -108,4 +109,17 @@ export const listUnspent = async (rpc: Rpc, address: string) => {
         }
       : undefined,
   }));
+};
+
+// The wallet is asked to broadcast, but a wallet may only sign, so the page sends the signed transaction too.
+// A node that already has it answers "txn-already-known" or "transaction already in block chain"; both mean it is out.
+export const broadcast = async (rpc: Rpc, signedHex: string) => {
+  const txid = hashTransaction(hexToBin(signedHex));
+  try {
+    const r = await rpc.request("blockchain.transaction.broadcast", signedHex);
+    if (r !== txid) throw new Error(`Server answered ${String(r)} instead of txid ${txid}`);
+  } catch (e) {
+    if (!/already[- ](known|in block ?chain)/i.test(String((e as Error).message ?? e))) throw e;
+  }
+  return txid;
 };
