@@ -11,7 +11,7 @@ import { buildSealTx, wizardRequest } from "./tx";
 const BANNER = {
   deck: "",
   repo: "https://github.com/emilhuseyn/release-seal",
-  emberAddress: "",
+  emberAddress: "bitcoincash:zzrq9aavqx57w49galdt3paav9lnk3zy9q6hszc6q0",
 };
 
 const readFiles = async (list: FileList | File[]) =>
