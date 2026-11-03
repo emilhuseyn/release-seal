@@ -36,7 +36,7 @@ const sizeWith = (tx: Transaction, unlockSize: number) =>
   encodeTransaction({ ...tx, inputs: tx.inputs.map((i) => ({ ...i, unlockingBytecode: new Uint8Array(unlockSize) })) }).length;
 
 // WizardConnect (hdwalletv1) request: every input sits at the wallet's receive/0 address, the one the publisher NFT lives on.
-export const wizardRequest = (u: UnsignedSealTx, userPrompt: string) => ({
+export const wizardRequest = (u: Pick<UnsignedSealTx, "transaction" | "sourceOutputs">, userPrompt: string) => ({
   transaction: {
     transaction: u.transaction,
     sourceOutputs: u.transaction.inputs.map((input, i) => ({ ...input, ...u.sourceOutputs[i] })),
@@ -45,6 +45,29 @@ export const wizardRequest = (u: UnsignedSealTx, userPrompt: string) => ({
   },
   inputPaths: u.transaction.inputs.map((_, i): [number, string, number] => [i, "receive", 0]),
 });
+
+// Exchange withdrawals rarely land at output 0, so genesis may first need this: every plain coin back to the publisher
+// as one output at index 0. Its txid becomes the project's category.
+export const buildPrepTx = ({ publisherLock, funding, feeRate = 1n }: Pick<SealTxInput, "publisherLock" | "funding" | "feeRate">) => {
+  const coins = funding.filter((u) => !u.token);
+  const sourceOutputs: Output[] = coins.map((u) => ({ lockingBytecode: publisherLock, valueSatoshis: u.satoshis }));
+  const tx: Transaction = {
+    version: 2,
+    locktime: 0,
+    inputs: coins.map((u) => ({
+      outpointTransactionHash: hexToBin(u.txid),
+      outpointIndex: u.vout,
+      sequenceNumber: 0xffffffff,
+      unlockingBytecode: new Uint8Array(),
+    })),
+    outputs: [{ lockingBytecode: publisherLock, valueSatoshis: 0n }],
+  };
+  const fee = BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate;
+  const value = coins.reduce((s, u) => s + u.satoshis, 0n) - fee;
+  if (value < NFT_SATS + DUST) throw new Error("Not enough BCH in the wallet to create a project");
+  tx.outputs[0].valueSatoshis = value;
+  return { transaction: tx, sourceOutputs, fee, value };
+};
 
 export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, feeRate = 1n }: SealTxInput): UnsignedSealTx => {
   if (commitment.length > 40) throw new Error("NFT commitment is limited to 40 bytes");

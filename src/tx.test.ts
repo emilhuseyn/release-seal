@@ -15,7 +15,7 @@ import {
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, NFT_SATS, type Utxo } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -88,6 +88,29 @@ describe("buildSealTx", () => {
     });
     const forged = { ...r.transaction, outputs: r.transaction.outputs.map((o, i) => (i ? o : { ...o, token: { ...o.token!, category: hexToBin("ff".repeat(32)) } })) };
     expect(vm.verify({ sourceOutputs: r.sourceOutputs, transaction: sign(forged, r.sourceOutputs) })).not.toBe(true);
+  });
+
+  it("coins off output 0 are moved to output 0 first, and genesis from that coin verifies", () => {
+    const p = buildPrepTx({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 5000n), coin("ab".repeat(32), 7, 3000n)] });
+    const ps = sign(p.transaction, p.sourceOutputs);
+    expect(vm.verify({ sourceOutputs: p.sourceOutputs, transaction: ps })).toBe(true);
+    expect(ps.outputs.length).toBe(1);
+    expect(p.value + p.fee).toBe(8000n);
+    expect(p.fee).toBeGreaterThanOrEqual(BigInt(encodeTransaction(ps).length));
+
+    const prepTxid = binToHex(hashTransactionUiOrder(encodeTransaction(ps)));
+    const g = buildSealTx({
+      record: { kind: "genesis", version: "demo-project", manifestUrl: "https://example.org/seal" },
+      commitment: root1,
+      publisherLock: lock,
+      funding: [coin(prepTxid, 0, p.value)],
+    });
+    expect(binToHex(g.category)).toBe(prepTxid);
+    expect(vm.verify({ sourceOutputs: g.sourceOutputs, transaction: sign(g.transaction, g.sourceOutputs) })).toBe(true);
+  });
+
+  it("a prep coin too small for genesis is refused before anything is signed", () => {
+    expect(() => buildPrepTx({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 1700n)] })).toThrow(/Not enough/);
   });
 
   it("refuses genesis without a coin at output 0", () => {

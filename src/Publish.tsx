@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { broadcast, listUnspent } from "./chain";
 import { rpc } from "./rpc";
 import { findDuplicates, merkleRoot, type FileEntry, type Manifest } from "./seal";
-import { buildSealTx, wizardRequest } from "./tx";
+import { buildPrepTx, buildSealTx, wizardRequest, type Utxo } from "./tx";
 import { DropZone, short } from "./ui";
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
@@ -74,11 +74,22 @@ export default function Publish() {
       const mine = coins.filter((c) => c.token?.nft?.capability === "mutable");
       const nft = project ? mine.find((c) => binToHex(c.token!.category) === project) : undefined;
       const commitment = kind === "genesis" ? merkleRoot([]) : merkleRoot(files);
+      const record = { kind, version: kind === "genesis" ? name : version, manifestUrl: url };
+      let funding: Utxo[] = coins.filter((c) => !c.token);
+      if (kind === "genesis" && !funding.some((c) => c.vout === 0)) {
+        const p = buildPrepTx({ publisherLock: lock, funding });
+        buildSealTx({ record, commitment, publisherLock: lock, funding: [{ txid: "00".repeat(32), vout: 0, satoshis: p.value }] });
+        setStatus(`Step 1 of 2: a project starts from a coin at output 0 and yours are elsewhere. Confirm moving them to yourself, fee ${p.fee} sats.`);
+        const pr = await wc.manager.signTransaction(wizardRequest(p, "Release Seal: move coins to output 0 before creating the project"));
+        const prepTxid = await broadcast(await rpc(), pr.signedTransaction);
+        funding = [{ txid: prepTxid, vout: 0, satoshis: p.value }];
+        setStatus("Step 2 of 2: building the project transaction...");
+      }
       const u = buildSealTx({
-        record: { kind, version: kind === "genesis" ? name : version, manifestUrl: url },
+        record,
         commitment,
         publisherLock: lock,
-        funding: coins.filter((c) => !c.token),
+        funding,
         nft: kind === "genesis" ? undefined : nft,
       });
       setStatus(`Confirm in your wallet. Fee ${u.fee} sats.`);
