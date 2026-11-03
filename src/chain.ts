@@ -112,6 +112,30 @@ export const listUnspent = async (rpc: Rpc, address: string) => {
   }));
 };
 
+export interface HeldProject {
+  category: string;
+  kind: SealRecord["kind"];
+  version: string;
+  txid: string;
+}
+
+// Projects the publisher holds: a project's NFT always sits at output 0 of its latest seal transaction, whose record names the
+// last step (a genesis record carries the project name). A mutable NFT anywhere else, or without a record, is not a project.
+export const heldProjects = async (
+  rpc: Rpc,
+  coins: { txid: string; vout: number; token?: { category: Uint8Array; nft?: { capability: string } } }[],
+): Promise<HeldProject[]> => {
+  const held = coins.filter((c) => c.vout === 0 && c.token?.nft?.capability === "mutable");
+  const found = await Promise.all(
+    held.map(async (c) => {
+      const tx = await getTx(rpc, c.txid);
+      const record = tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
+      return record && { category: binToHex(c.token!.category), kind: record.kind, version: record.version, txid: c.txid };
+    }),
+  );
+  return found.filter((p): p is HeldProject => !!p);
+};
+
 // The wallet is asked to broadcast, but a wallet may only sign, so the page sends the signed transaction too.
 // A node that already has it answers "txn-already-known" or "transaction already in block chain"; both mean it is out.
 export const broadcast = async (rpc: Rpc, signedHex: string) => {

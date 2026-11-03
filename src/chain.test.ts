@@ -13,7 +13,7 @@ import {
   type Transaction,
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { broadcast, walkProject, type Rpc } from "./chain";
+import { broadcast, heldProjects, walkProject, type Rpc } from "./chain";
 import { entryFor, merkleRoot, type SealRecord } from "./seal";
 import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
 
@@ -104,6 +104,44 @@ describe("walkProject", () => {
     const events = await walkProject(rpc, category);
     expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
     expect(events.map((e) => e.height)).toEqual([0, 0]);
+  });
+});
+
+describe("heldProjects", () => {
+  const parentOf = (seed: string) =>
+    put(
+      sign(
+        {
+          version: 2,
+          locktime: 0,
+          inputs: [{ outpointTransactionHash: hexToBin(seed.repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+          outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+        },
+        [{ lockingBytecode: lock, valueSatoshis: 51000n }],
+      ),
+      900010,
+    );
+
+  it("lists the publisher's projects with their last step and skips every other coin", async () => {
+    const root = merkleRoot([entryFor("held.tgz", new Uint8Array([9]))]);
+    const a = parentOf("ad");
+    const ga = step({ kind: "genesis", version: "alpha", manifestUrl: "https://x.org" }, root, [{ txid: a, vout: 0, satoshis: 50000n }]);
+    const ra = step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, root, [ga.change], ga.nft);
+    const b = parentOf("ae");
+    const gb = step({ kind: "genesis", version: "beta", manifestUrl: "https://y.org" }, root, [{ txid: b, vout: 0, satoshis: 50000n }]);
+    const mutable = { category: hexToBin(a), amount: 0n, nft: { capability: "mutable" as const, commitment: root } };
+    const coins = [
+      ra.nft,
+      gb.nft,
+      ra.change,
+      { txid: a, vout: 0, satoshis: 1000n, token: mutable },
+      { txid: ra.txid, vout: 2, satoshis: 1000n, token: mutable },
+    ];
+
+    expect(await heldProjects(rpc, coins)).toEqual([
+      { category: a, kind: "release", version: "v1", txid: ra.txid },
+      { category: b, kind: "genesis", version: "beta", txid: gb.txid },
+    ]);
   });
 });
 

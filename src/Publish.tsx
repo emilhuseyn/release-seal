@@ -1,11 +1,11 @@
 import { binToHex, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
-import { useEffect, useMemo, useState } from "react";
-import { broadcast, listUnspent } from "./chain";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { findDuplicates, merkleRoot, parseManifest, pickList, type FileEntry, type Manifest } from "./seal";
 import { buildPrepTx, buildSealTx, wizardRequest, type Utxo } from "./tx";
-import { DropZone, short } from "./ui";
+import { DropZone, short, Snippet } from "./ui";
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
 export default function Publish() {
@@ -20,6 +20,8 @@ export default function Publish() {
   const [status, setStatus] = useState("");
   const [sent, setSent] = useState("");
   const [stale, setStale] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [wallet, setWallet] = useState<{ sats: bigint; projects: HeldProject[] } | "error">();
 
   // The dapp gives up on the key exchange 30 s after the relay connects and only logs it, so a QR scanned later never pairs.
   useEffect(() => {
@@ -61,6 +63,27 @@ export default function Publish() {
     const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash", tokenSupport: true });
     return typeof r === "string" ? r : r.address;
   }, [lock]);
+  // Exchanges and most wallets send only to the plain q address; the token-aware z address above holds the same coins.
+  const fundAddress = useMemo(() => {
+    if (!lock) return "";
+    const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash" });
+    return typeof r === "string" ? r : r.address;
+  }, [lock]);
+
+  // Before any click the publisher sees whether the fee money arrived at this address and which projects it already holds.
+  const loadWallet = useCallback(async () => {
+    if (!address) return;
+    try {
+      const coins = await listUnspent(await rpc(), address);
+      const sats = coins.filter((c) => !c.token).reduce((s, c) => s + c.satoshis, 0n);
+      setWallet({ sats, projects: await heldProjects(await rpc(), coins) });
+    } catch {
+      setWallet("error");
+    }
+  }, [address]);
+  useEffect(() => {
+    loadWallet();
+  }, [loadWallet]);
 
   // A seal.json from a release job (public/seal-manifest.mjs) stands in for the files; any files dropped with it must be on it.
   // Derived on every render, so a project id typed after the drop is still checked against the list.
@@ -78,7 +101,8 @@ export default function Publish() {
   const dupes = findDuplicates(files);
 
   const send = async (kind: "genesis" | "release" | "revoke") => {
-    if (!wc.manager || !lock) return;
+    if (!wc.manager || !lock || busy) return;
+    setBusy(true);
     setStatus("Building the transaction...");
     setSent("");
     try {
@@ -113,6 +137,9 @@ export default function Publish() {
       setStatus(kind === "genesis" ? `Project created. Its id is ${binToHex(u.category)}` : kind === "revoke" ? `Version ${version} revoked.` : `Version ${version} sealed.`);
     } catch (e) {
       setStatus(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+      loadWallet();
     }
   };
 
@@ -154,11 +181,35 @@ export default function Publish() {
         </div>
       ) : (
         <div className="card">
-          <p className="muted">
-            {wc.walletName} connected. Publisher address {short(address.replace("bitcoincash:", ""), 8)}
-          </p>
+          <p className="muted">{wc.walletName} connected. Your projects live at this address, and it pays the fees.</p>
+          <Snippet label="Publisher address" text={fundAddress} />
+          {wallet === "error" ? (
+            <p className="bad">
+              Could not read this address's coins. <button onClick={loadWallet}>Retry</button>
+            </p>
+          ) : (
+            wallet && (
+              <>
+                <p className={wallet.sats ? "muted" : "bad"}>
+                  {wallet.sats
+                    ? `${wallet.sats.toLocaleString("en-US")} sats for fees at this address.`
+                    : "No BCH at this address yet. A project and its first releases need about 3,400 sats: send them to the address above."}
+                </p>
+                {wallet.projects.length > 0 && (
+                  <div className="row">
+                    <span className="muted">Projects this address holds:</span>
+                    {wallet.projects.map((p) => (
+                      <button key={p.category} className={p.category === project ? "on" : ""} onClick={() => setProject(p.category)}>
+                        {p.kind === "genesis" ? p.version : `${p.kind === "revoke" ? "revoked" : "sealed"} ${p.version}`} {short(p.category, 4)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          )}
           <div className="row">
-            <input value={project} onChange={(e) => setProject(e.target.value.trim())} placeholder="Project id (empty to create a new project)" />
+            <input value={project} onChange={(e) => setProject(e.target.value.trim().toLowerCase())} placeholder="Project id (empty to create a new project)" />
             {!project && <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New project name" />}
           </div>
           <div className="row">
@@ -177,17 +228,17 @@ export default function Publish() {
           {dupes.length > 0 && <p className="bad">Duplicate names: {dupes.join(", ")}</p>}
           <div className="row">
             {!project && (
-              <button disabled={!name || !url} onClick={() => send("genesis")}>
+              <button disabled={busy || !name || !url} onClick={() => send("genesis")}>
                 Create project
               </button>
             )}
             <button disabled={!files.length || !version || !url || !project || dupes.length > 0} onClick={download}>
               Download seal.json
             </button>
-            <button disabled={!files.length || !version || !url || !project || dupes.length > 0} onClick={() => send("release")}>
+            <button disabled={busy || !files.length || !version || !url || !project || dupes.length > 0} onClick={() => send("release")}>
               Seal release
             </button>
-            <button disabled={!version || !project} onClick={() => send("revoke")}>
+            <button disabled={busy || !version || !project} onClick={() => send("revoke")}>
               Revoke this version
             </button>
           </div>
