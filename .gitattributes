@@ -1,0 +1,2 @@
+# Sealed demo files: hashes must match byte for byte on every checkout.
+public/demo/** -text

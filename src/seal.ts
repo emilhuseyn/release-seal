@@ -117,13 +117,16 @@ export interface Check {
   expected?: FileEntry;
 }
 
+// A second download of the same file is saved as "name (1).ext" (Chrome) or "name(1).ext" (Firefox); match it to "name.ext".
+export const undupName = (name: string) => name.replace(/ ?\(\d+\)(?=\.|$)/, "");
+
 // Compares dropped files with a manifest whose root matches the on-chain commitment.
 export const checkFiles = (manifest: Manifest, commitment: Uint8Array, dropped: FileEntry[]) => {
   const rootOk = binToHex(merkleRoot(manifest.files)) === binToHex(commitment);
   const byName = new Map(manifest.files.map((f) => [f.name, f]));
   const byHash = new Map(manifest.files.map((f) => [f.sha256, f]));
   const checks: Check[] = dropped.map((d) => {
-    const exp = byName.get(d.name) ?? byHash.get(d.sha256);
+    const exp = byName.get(d.name) ?? byHash.get(d.sha256) ?? byName.get(undupName(d.name));
     if (!exp) return { name: d.name, status: "unknown" };
     return { name: d.name, status: exp.sha256 === d.sha256 && exp.size === d.size ? "match" : "changed", expected: exp };
   });

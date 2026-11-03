@@ -15,6 +15,9 @@ const BANNER = {
   emberAddress: "bitcoincash:zzrq9aavqx57w49galdt3paav9lnk3zy9q6hszc6q0",
 };
 
+// Token category of the demo project that seals public/demo/v1.0.0 on mainnet. Empty until that seal exists; the links stay hidden.
+const DEMO_PROJECT = "";
+
 
 interface Result {
   event: SealEvent;
@@ -90,7 +93,13 @@ function Verify() {
         <input value={category} onChange={(e) => setCategory(e.target.value.trim())} placeholder="Project id (token category)" spellCheck={false} />
         <button type="submit">Open</button>
       </form>
-      {busy && <p className="muted">{busy}</p>}
+      {DEMO_PROJECT && !events && (
+        <p className="muted">
+          No project to hand? Open the <a href={`?project=${DEMO_PROJECT}`}>demo project</a>, then drop its{" "}
+          <a href="./demo/v1.0.0/hello-seal-1.0.0.zip">sealed zip</a> or a <a href="./demo/tampered/hello-seal-1.0.0.zip">tampered copy</a>.
+        </p>
+      )}
+      {busy &&<p className="muted">{busy}</p>}
       {error && <p className="bad">{error}</p>}
       {events && (
         <>
