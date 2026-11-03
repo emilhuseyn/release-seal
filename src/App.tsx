@@ -76,7 +76,8 @@ function Verify() {
       setManifests(ms);
       setEvents(ev);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      const msg = String((e as Error).message ?? e);
+      setError(/No such mempool or blockchain transaction/.test(msg) ? "No project with this id exists on Bitcoin Cash. Check the id or the link." : msg);
     } finally {
       setBusy("");
     }
