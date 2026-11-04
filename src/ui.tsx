@@ -1,13 +1,28 @@
 import { useState } from "react";
 import { entryFor, type FileEntry } from "./seal";
 
-export const readFiles = async (list: FileList | File[]) =>
-  Promise.all([...list].map(async (f) => entryFor(f.name, new Uint8Array(await f.arrayBuffer()))));
+// A dropped folder (or a file the browser cannot read) rejects arrayBuffer(); it is skipped and named instead of failing silently.
+export const readFiles = async (list: FileList | File[]) => {
+  const all = [...list];
+  const read = await Promise.allSettled(all.map(async (f) => entryFor(f.name, new Uint8Array(await f.arrayBuffer()))));
+  const ok = read.flatMap((r, i) => (r.status === "fulfilled" ? [{ entry: r.value, file: all[i] }] : []));
+  return {
+    entries: ok.map((o) => o.entry),
+    files: ok.map((o) => o.file),
+    failed: all.filter((_, i) => read[i].status === "rejected").map((f) => f.name),
+  };
+};
 
 export const short = (s: string, n = 10) => (s.length > 2 * n ? `${s.slice(0, n)}...${s.slice(-n)}` : s);
 
 export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[], raw: File[]) => void; label: string }) {
   const [over, setOver] = useState(false);
+  const [failed, setFailed] = useState<string[]>([]);
+  const take = async (list: File[]) => {
+    const r = await readFiles(list);
+    setFailed(r.failed);
+    if (r.entries.length) onFiles(r.entries, r.files);
+  };
   return (
     <label
       className={`drop ${over ? "over" : ""}`}
@@ -16,16 +31,30 @@ export function DropZone({ onFiles, label }: { onFiles: (f: FileEntry[], raw: Fi
         setOver(true);
       }}
       onDragLeave={() => setOver(false)}
-      onDrop={async (e) => {
+      onDrop={(e) => {
         e.preventDefault();
         setOver(false);
-        const raw = [...e.dataTransfer.files];
-        onFiles(await readFiles(raw), raw);
+        take([...e.dataTransfer.files]);
       }}
     >
-      <input type="file" multiple hidden onChange={async (e) => e.target.files && onFiles(await readFiles(e.target.files), [...e.target.files])} />
+      {/* visually hidden, not display:none, so Tab reaches it; value cleared so picking the same file again still fires */}
+      <input
+        type="file"
+        multiple
+        className="visually-hidden"
+        onChange={(e) => {
+          const list = [...(e.target.files ?? [])];
+          e.target.value = "";
+          take(list);
+        }}
+      />
       <span>{label}</span>
       <small>Files are hashed in your browser. Nothing is uploaded.</small>
+      {failed.length > 0 && (
+        <span className="bad" role="alert">
+          Could not read {failed.join(", ")}. Drop files, not folders.
+        </span>
+      )}
     </label>
   );
 }
