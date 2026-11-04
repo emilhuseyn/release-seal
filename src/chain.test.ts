@@ -105,6 +105,53 @@ describe("walkProject", () => {
     expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
     expect(events.map((e) => e.height)).toEqual([0, 0]);
   });
+
+  it("on a busy wallet reads nothing older than the project and reads many at once", async () => {
+    const filler = (n: number, height: number) => {
+      const raw = encodeTransaction({
+        version: 2,
+        locktime: 0,
+        inputs: [{ outpointTransactionHash: hexToBin(n.toString(16).padStart(64, "f")), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+        outputs: [{ lockingBytecode: lock, valueSatoshis: 1000n }],
+      });
+      const txid = binToHex(hashTransactionUiOrder(raw));
+      store.set(txid, binToHex(raw));
+      return { tx_hash: txid, height };
+    };
+    const old = Array.from({ length: 60 }, (_, n) => filler(n, 800000 + n));
+    const mark = hist.length;
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("ba".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 910000);
+    const root = merkleRoot([entryFor("busy.tgz", new Uint8Array([5]))]);
+    const g = step({ kind: "genesis", version: "busy", manifestUrl: "https://x.org" }, root, [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 910030);
+    step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, root, [g.change], g.nft, 910031);
+    const [p, ...chain] = hist.slice(mark);
+    const between = Array.from({ length: 30 }, (_, n) => filler(100 + n, 910000 + n));
+    const busy = [...old, p, ...between, ...chain];
+
+    const read: string[] = [];
+    let inFlight = 0;
+    let most = 0;
+    const slow: Rpc = {
+      request: async (method, ...params) => {
+        if (method === "blockchain.address.get_history") return busy;
+        read.push(params[0] as string);
+        most = Math.max(most, ++inFlight);
+        await new Promise((r) => setTimeout(r, 2));
+        inFlight--;
+        return store.get(params[0] as string);
+      },
+    };
+    const events = await walkProject(slow, category);
+    expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
+    expect(read.filter((t) => old.some((o) => o.tx_hash === t))).toEqual([]);
+    expect(most).toBeGreaterThan(1);
+  });
 });
 
 describe("heldProjects", () => {

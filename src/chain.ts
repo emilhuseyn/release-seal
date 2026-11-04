@@ -53,22 +53,30 @@ const history = async (rpc: Rpc, address: string) => {
   return h as HistoryItem[];
 };
 
+// Each transaction read is a round trip (about 280 ms from Baku, 4 Nov) and a judge's own wallet address can hold hundreds, so a
+// step reads only what can spend the current output (confirmed in its block or later, or in the mempool), CHUNK at once.
+const CHUNK = 20;
+
 export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): Promise<SealEvent[]> => {
   const parent = await getTx(rpc, category);
   let address = addressOf(parent.outputs[0].lockingBytecode);
   let current = { txid: category, vout: 0 };
+  let currentHeight: number | undefined;
   const events: SealEvent[] = [];
   for (let step = 0; step < maxSteps; step++) {
     const items = await history(rpc, address);
-    let next: { txid: string; height: number; tx: Transaction } | undefined;
-    for (const item of items) {
-      const tx = await getTx(rpc, item.tx_hash);
-      const spends = tx.inputs.some((i) => binToHex(i.outpointTransactionHash) === current.txid && i.outpointIndex === current.vout);
-      if (spends) {
-        // A mempool entry has height 0, or -1 when one of its parents is unconfirmed too (genesis right after the prep tx).
-        next = { txid: item.tx_hash, height: Math.max(0, item.height), tx };
-        break;
-      }
+    // A mempool entry has height 0, or -1 when one of its parents is unconfirmed too (genesis right after the prep tx).
+    currentHeight ??= items.find((i) => i.tx_hash === current.txid)?.height;
+    const h = currentHeight;
+    const candidates = items.filter((i) => h === undefined || i.height <= 0 || (h > 0 && i.height >= h));
+    let next: { txid: string; height: number; rawHeight: number; tx: Transaction } | undefined;
+    for (let at = 0; at < candidates.length && !next; at += CHUNK) {
+      const chunk = candidates.slice(at, at + CHUNK);
+      const txs = await Promise.all(chunk.map((i) => getTx(rpc, i.tx_hash)));
+      const k = txs.findIndex((tx) =>
+        tx.inputs.some((i) => binToHex(i.outpointTransactionHash) === current.txid && i.outpointIndex === current.vout),
+      );
+      if (k >= 0) next = { txid: chunk[k].tx_hash, height: Math.max(0, chunk[k].height), rawHeight: chunk[k].height, tx: txs[k] };
     }
     if (!next) break;
     const out0 = next.tx.outputs[0];
@@ -84,6 +92,7 @@ export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): P
     events.push({ ...record, txid: next.txid, height: next.height, commitment: binToHex(nft.commitment), publisher });
     address = publisher;
     current = { txid: next.txid, vout: 0 };
+    currentHeight = next.rawHeight;
   }
   return events;
 };
