@@ -4,7 +4,12 @@ import {
   binToHex,
   createVirtualMachineBCH,
   decodeTransaction,
+  deriveHdPath,
+  deriveHdPathRelative,
+  deriveHdPrivateNodeFromSeed,
+  deriveHdPublicNode,
   encodeDataPush,
+  encodeHdPublicKey,
   encodeTransaction,
   generateSigningSerializationBCH,
   hash256,
@@ -18,9 +23,10 @@ import {
   type Output,
   type Transaction,
 } from "@bitauth/libauth";
+import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -318,5 +324,30 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
     const rv = buildSealTx({ record: { kind: "revoke", version: "v1", manifestUrl: link(r.category) }, commitment: root2, publisherLock: lock, ...held(v2id) });
     await w.send(rv, "revoke v1");
     expect(w.steps).toEqual(["Step 1 of 2: create the project", "Step 2 of 2: seal the files as v1", "v2", "revoke v1"]);
+  });
+});
+
+describe("receiveKey", () => {
+  it("a wallet_ready with no xpubs (Selene before its user approves) gives no key, the next one gives receive/0", () => {
+    const seed = deriveHdPrivateNodeFromSeed(hexToBin("22".repeat(32)));
+    const chain = deriveHdPublicNode(deriveHdPath(seed, "m/44'/145'/0'/0"));
+    const xpub = encodeHdPublicKey({ network: "mainnet", node: chain }).hdPublicKey;
+    const child = deriveHdPathRelative(chain, "0");
+    const m = new DappConnectionManager("Release Seal", undefined, { session: false });
+    const keys: string[] = [];
+    m.on("walletready", () => keys.push(receiveKey(m)));
+    const ready = (paths: { name: string; xpub: string }[]) => ({
+      action: "wallet_ready",
+      wallet_name: "Selene",
+      wallet_icon: "",
+      supported_protocols: ["hdwalletv1"],
+      session: { hdwalletv1: { paths } },
+      dapp_discovered: true,
+      time: 0,
+    });
+    const deliver = (msg: object) => (m as unknown as { handleMessage(msg: object): void }).handleMessage(msg);
+    deliver(ready([]));
+    deliver(ready([{ name: "receive", xpub }]));
+    expect(keys).toEqual(["", binToHex(child.publicKey)]);
   });
 });

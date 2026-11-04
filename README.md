@@ -32,7 +32,7 @@ of a release still works, because the files' own root is compared with the seal.
 Verify: open the page with `?project=<token category>`, or paste the id or a project or badge link into the box, then drop the files
 you downloaded.
 
-Seal: connect a wallet that speaks WizardConnect (Paytaca or Cashonize), create a project, drop the release files, enter the version
+Seal: connect a wallet that speaks WizardConnect (Cashonize, Paytaca, or Selene 2026.10 or newer), create a project, drop the release files, enter the version
 and the URL where `seal.json` will live, download `seal.json`, host it at that URL, then seal. A seal costs a few hundred satoshis
 in fees, and 1,000 satoshis stay on the NFT.
 

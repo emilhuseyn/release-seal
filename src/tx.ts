@@ -51,6 +51,13 @@ export const wizardRequest = (u: Pick<UnsignedSealTx, "transaction" | "sourceOut
   inputPaths: u.transaction.inputs.map((_, i): [number, string, number] => [i, "receive", 0]),
 });
 
+// The key the page spends from (receive/0), or "" while the wallet has shared no xpubs. Selene 2026.10 sends a wallet_ready
+// with no paths as soon as it pairs and a second one with them once its user approves the dapp.
+export const receiveKey = (m: { getPubkey(childIndex: number, index: bigint): Uint8Array | undefined }) => {
+  const p = m.getPubkey(0, 0n);
+  return p ? binToHex(p) : "";
+};
+
 // Exchange withdrawals rarely land at output 0, so genesis may first need this: every plain coin back to the publisher
 // as one output at index 0. Its txid becomes the project's category.
 export const buildPrepTx = ({ publisherLock, funding, feeRate = 1n }: Pick<SealTxInput, "publisherLock" | "funding" | "feeRate">) => {

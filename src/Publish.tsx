@@ -1,16 +1,17 @@
-import { binToHex, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
+import { binToHex, hexToBin, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
 import { DropZone, short, Snippet } from "./ui";
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
 export default function Publish() {
   const wc = useWizardConnect({ dappName: "Release Seal", persistSession: true });
   const [ready, setReady] = useState(false);
+  const [pubHex, setPubHex] = useState("");
   const [showQr, setShowQr] = useState(false);
   const [drop, setDrop] = useState<{ entries: FileEntry[]; lists: (Manifest | undefined)[]; names: string[] }>({ entries: [], lists: [], names: [] });
   const [project, setProject] = useState("");
@@ -42,22 +43,28 @@ export default function Publish() {
 
   const freshQr = async () => {
     await wc.disconnect();
+    setReady(false);
+    setPubHex("");
     setStale(false);
     setRenew(true);
   };
 
+  // The key is read on every wallet_ready: Selene's second one (after its user approves) changes nothing in the hook's state,
+  // so a key read once at render time would stay empty.
   useEffect(() => {
     const m = wc.manager;
     if (!m) return;
-    const on = () => setReady(true);
+    const on = () => {
+      setReady(true);
+      setPubHex(receiveKey(m));
+    };
     m.on("walletready", on);
     return () => {
       m.off?.("walletready", on);
     };
   }, [wc.manager]);
 
-  const pub = ready ? wc.manager?.getPubkey(0, 0n) : undefined;
-  const lock = useMemo(() => (pub ? publicKeyToP2pkhLockingBytecode({ publicKey: pub }) : undefined), [pub]);
+  const lock = useMemo(() => (pubHex ? publicKeyToP2pkhLockingBytecode({ publicKey: hexToBin(pubHex) }) : undefined), [pubHex]);
   const address = useMemo(() => {
     if (!lock) return "";
     const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash", tokenSupport: true });
@@ -195,7 +202,7 @@ export default function Publish() {
     <section>
       {!ready ? (
         <div className="card">
-          <p>Connect a Bitcoin Cash wallet that speaks WizardConnect (for example Cashonize).</p>
+          <p>Connect a Bitcoin Cash wallet that speaks WizardConnect: Cashonize, Paytaca or Selene (2026.10 or newer).</p>
           <button
             onClick={() => {
               wc.connect();
@@ -218,6 +225,15 @@ export default function Publish() {
             title="Scan with your wallet"
             subtitle={stale ? "This code is over 30 seconds old and may not pair. Close this and press New QR code." : undefined}
           />
+        </div>
+      ) : !lock ? (
+        <div className="card">
+          <p>
+            {wc.walletName ?? "Your wallet"} is paired but has not shared its address yet. Approve Release Seal in the wallet.
+          </p>
+          <p className="muted">
+            Declined, or nothing after a minute? <button onClick={freshQr}>New QR code</button>
+          </p>
         </div>
       ) : (
         <div className="card">
