@@ -3,8 +3,8 @@ import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
-import { findDuplicates, merkleRoot, parseManifest, pickList, type FileEntry, type Manifest } from "./seal";
-import { buildPrepTx, buildSealTx, wizardRequest, type Utxo } from "./tx";
+import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, type FileEntry, type Manifest } from "./seal";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, wizardRequest, type Send, type Utxo } from "./tx";
 import { DropZone, short, Snippet } from "./ui";
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
@@ -143,6 +143,46 @@ export default function Publish() {
     }
   };
 
+  const signAndSend: Send = async (u, step) => {
+    setStatus(`${step}. Confirm in your wallet, fee ${u.fee} sats.`);
+    const res = await wc.manager!.signTransaction(wizardRequest(u, `Release Seal: ${step}`));
+    setStatus("Signed. Sending to the network...");
+    return broadcast(await rpc(), res.signedTransaction);
+  };
+
+  // One press for a first try: a new project named after the file, the files sealed as v1, the project page as its link.
+  const quick = async () => {
+    if (!wc.manager || !lock || busy || !files.length) return;
+    setBusy(true);
+    setStatus("Building the transactions...");
+    setSent("");
+    const base = new URL(".", location.href).href;
+    const link = (c: string) => badgeSnippets(base, c)?.link ?? base;
+    let created = "";
+    const keep = (c: string) => {
+      setProject(c);
+      setVersion(FIRST_VERSION);
+      setUrl(link(c));
+    };
+    try {
+      const coins = await listUnspent(await rpc(), address);
+      const r = await firstSeal(
+        { publisherLock: lock, funding: coins, files, name: (name || files[0].name).slice(0, 32), link, onCreated: (c) => (created = c) },
+        signAndSend,
+      );
+      keep(r.category);
+      setSent(r.release);
+      setStatus(`Sealed ${files.length === 1 ? files[0].name : `${files.length} files`} as ${FIRST_VERSION}. Open the project page below and drop the same file, then a changed copy.`);
+    } catch (e) {
+      const msg = String((e as Error).message ?? e);
+      if (created) keep(created);
+      setStatus(created ? `The project was created, but the seal was not sent (${msg}). Press Seal release to try again.` : msg);
+    } finally {
+      setBusy(false);
+      loadWallet();
+    }
+  };
+
   const download = () => {
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
@@ -208,6 +248,13 @@ export default function Publish() {
               </>
             )
           )}
+          {!project && (
+            <p className="muted">
+              First try? Drop any file below and press <b>Seal it now</b>. The page creates a project named after the file and seals
+              it as v1 on mainnet: two or three confirmations in your wallet, about 2,300 sats, of which 1,000 stay in your wallet as
+              the project's NFT.
+            </p>
+          )}
           <div className="row">
             <input value={project} onChange={(e) => setProject(e.target.value.trim().toLowerCase())} placeholder="Project id (empty to create a new project)" />
             {!project && <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New project name" />}
@@ -227,6 +274,11 @@ export default function Publish() {
           {picked.error && <p className="bad">{picked.error}</p>}
           {dupes.length > 0 && <p className="bad">Duplicate names: {dupes.join(", ")}</p>}
           <div className="row">
+            {!project && (
+              <button disabled={busy || !files.length || dupes.length > 0} onClick={quick}>
+                Seal it now
+              </button>
+            )}
             {!project && (
               <button disabled={busy || !name || !url} onClick={() => send("genesis")}>
                 Create project

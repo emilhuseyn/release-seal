@@ -15,7 +15,7 @@ import {
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, NFT_SATS, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, type Send, type Utxo } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -170,5 +170,57 @@ describe("buildSealTx", () => {
         funding: [coin("aa".repeat(32), 1, 5000n)],
       }),
     ).toThrow(/output 0/);
+  });
+});
+
+describe("firstSeal", () => {
+  const files = [entryFor("photo.jpg", new Uint8Array([7, 8, 9]))];
+  const link = (c: string) => `https://example.org/release-seal/?project=${c}`;
+  // stands in for the wallet: signs, checks the VM and the fee, and returns the txid the page would broadcast
+  const wallet = () => {
+    const sent: { tx: Transaction; step: string; fee: bigint }[] = [];
+    const send: Send = async (u, step) => {
+      const s = sign(u.transaction, u.sourceOutputs);
+      expect(vm.verify({ sourceOutputs: u.sourceOutputs, transaction: s })).toBe(true);
+      expect(u.fee).toBeGreaterThanOrEqual(BigInt(encodeTransaction(s).length));
+      sent.push({ tx: s, step, fee: u.fee });
+      return binToHex(hashTransactionUiOrder(encodeTransaction(s)));
+    };
+    return { sent, send };
+  };
+
+  it("creates the project and seals the files as v1 in two transactions when a coin sits at output 0", async () => {
+    const w = wallet();
+    let created = "";
+    const r = await firstSeal(
+      { publisherLock: lock, funding: [coin("bb".repeat(32), 0, 6000n)], files, name: "photo.jpg", link, onCreated: (c) => (created = c) },
+      w.send,
+    );
+    expect(w.sent.map((s) => s.step)).toEqual(["Step 1 of 2: create the project", "Step 2 of 2: seal the files as v1"]);
+    expect(r.category).toBe("bb".repeat(32));
+    expect(created).toBe(r.category);
+    const [g, rel] = w.sent.map((s) => s.tx);
+    expect(decodeRecord(g.outputs[1].lockingBytecode)).toMatchObject({ kind: "genesis", version: "photo.jpg", manifestUrl: link(r.category) });
+    expect(decodeRecord(rel.outputs[1].lockingBytecode)).toMatchObject({ kind: "release", version: FIRST_VERSION, manifestUrl: link(r.category) });
+    expect(binToHex(rel.inputs[0].outpointTransactionHash)).toBe(r.genesis);
+    expect(rel.inputs[0].outpointIndex).toBe(0);
+    expect(binToHex(rel.outputs[0].token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
+    expect(binToHex(rel.outputs[0].token!.category)).toBe(r.category);
+  });
+
+  it("moves coins to output 0 first when none sits there, then the project takes that txid", async () => {
+    const w = wallet();
+    const r = await firstSeal({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 3000n), coin("ab".repeat(32), 7, 2000n)], files, name: "p", link }, w.send);
+    expect(w.sent.map((s) => s.step[0] + s.step.slice(5, 11))).toEqual(["S1 of 3", "S2 of 3", "S3 of 3"]);
+    const prepTxid = binToHex(hashTransactionUiOrder(encodeTransaction(w.sent[0].tx)));
+    expect(r.category).toBe(prepTxid);
+    expect(binToHex(w.sent[2].tx.outputs[0].token!.category)).toBe(prepTxid);
+  });
+
+  it("a wallet that cannot pay for both steps is refused before anything is signed", async () => {
+    const w = wallet();
+    await expect(firstSeal({ publisherLock: lock, funding: [coin("bb".repeat(32), 0, 1700n)], files, name: "p", link }, w.send)).rejects.toThrow(/Not enough/);
+    await expect(firstSeal({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 1900n)], files, name: "p", link }, w.send)).rejects.toThrow(/Not enough/);
+    expect(w.sent.length).toBe(0);
   });
 });

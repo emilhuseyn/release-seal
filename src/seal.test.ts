@@ -146,6 +146,19 @@ describe("verdicts", () => {
     expect(r.checks[0].status).toBe("unknown");
   });
 
+  it("with no list, a changed copy of a one-file release reads as not the sealed file", () => {
+    const one = [entryFor("photo.jpg", utf8ToBin("photo"))];
+    const solo = [ev("genesis", "g", "00".repeat(32)), ev("release", "r1", binToHex(merkleRoot(one)))];
+    const [same] = verdicts(solo, {}, {}, one, [undefined]);
+    expect(same.mismatch).toBeUndefined();
+    expect(same.checks[0].status).toBe("match");
+    const [changed] = verdicts(solo, {}, {}, [entryFor("photo.jpg", utf8ToBin("photo, edited"))], [undefined]);
+    expect(changed.unchecked).toBe(true);
+    expect(changed.mismatch).toMatch(/^This file is not the sealed v1\./);
+    const [part] = verdicts(events, {}, {}, files.slice(1), files.slice(1).map(() => undefined));
+    expect(part.mismatch).toMatch(/^These files are not exactly the sealed v1\./);
+  });
+
   it("says a file is not part of the release only when the list was read", () => {
     const [r] = verdicts(events, { r1: honest }, {}, [entryFor("other.bin", utf8ToBin("x"))], [undefined]);
     expect(r.unchecked).toBe(false);

@@ -111,6 +111,10 @@ function Verify() {
             </li>
             <li>If someone swapped the installer on the download site, its hash no longer matches the seal and the page says so in red.</li>
           </ol>
+          <p className="muted">
+            To make a seal yourself, open <b>Seal a release</b>, connect a WizardConnect wallet with about 2,300 sats, drop any file and
+            press <b>Seal it now</b>.
+          </p>
         </div>
       )}
       {busy &&<p className="muted">{busy}</p>}
@@ -157,6 +161,7 @@ function Verify() {
             {r.event.version} {r.event.revoked && <span className="tag bad">revoked by the publisher</span>}
           </h3>
           {!r.rootOk && <p className="bad">The manifest at {r.event.manifestUrl} does not match the sealed root. Do not trust it.</p>}
+          {r.mismatch && <p className="bad">{r.mismatch}</p>}
           {r.note && <p className="muted">{r.note}</p>}
           {r.checks.map((c) => (
             <p key={c.name} className={c.status === "match" && r.rootOk && !r.event.revoked ? "good" : c.status === "unknown" ? "muted" : "bad"}>

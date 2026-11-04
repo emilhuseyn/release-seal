@@ -188,6 +188,7 @@ export interface Result {
   checks: Check[];
   note?: string;
   unchecked?: boolean;
+  mismatch?: string;
 }
 
 // Per release, newest first, the chain's commitment decides which list counts: the hosted one (kept only if its root matched),
@@ -216,10 +217,19 @@ export const verdicts = (
   }
   if (out.length) return out;
   const event = missing[0] ?? events[events.length - 1];
-  const unread = wrong[event.txid] ? "" : `The file list of ${event.version} could not be read from ${event.manifestUrl}. `;
+  const unread = wrong[event.txid] ? "" : `No file list for ${event.version} could be read at ${event.manifestUrl}, so the files cannot be checked one by one. `;
   const note = missing.length ? `${unread}Drop its seal.json from any copy together with the files, or drop every file of the release.` : undefined;
   const checks: Check[] = dropped.map((d) => ({ name: d.name, status: "unknown" }));
-  return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks }];
+  // Without a list the drop is still known not to be the sealed set, which for a one-file release (the Seal it now path) means changed.
+  const one = dropped.length === 1;
+  const which = missing.length === 1 ? `the sealed ${event.version}` : "any sealed release";
+  const mismatch =
+    missing.length && dropped.length
+      ? one
+        ? `This file is not ${which}. If that release is only this one file, this copy was changed.`
+        : `These files are not exactly ${which}. If that release is only these files, at least one was changed.`
+      : undefined;
+  return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks, mismatch }];
 };
 
 // What a maintainer pastes on a download page: a badge that opens this project's verify page. base is the app's own URL.

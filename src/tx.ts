@@ -1,8 +1,8 @@
 // Builds unsigned seal transactions. The wallet (WizardConnect) signs every P2PKH input; this module never sees a key.
 // Genesis: input 0 must spend output 0 of some transaction, whose txid becomes the project's token category.
 // Release and revoke: input 0 spends the current mutable NFT, output 0 recreates it with the new commitment.
-import { encodeTransaction, hexToBin, type Output, type Transaction } from "@bitauth/libauth";
-import { encodeRecord, type SealRecord } from "./seal";
+import { binToHex, encodeTransaction, hexToBin, type Output, type Transaction } from "@bitauth/libauth";
+import { encodeRecord, merkleRoot, type FileEntry, type SealRecord } from "./seal";
 
 export interface Utxo {
   txid: string;
@@ -116,4 +116,57 @@ export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, f
   const fee = inputTotal - NFT_SATS;
   if (fee < BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate) throw new Error("Not enough BCH in the wallet for the fee");
   return { transaction: tx, sourceOutputs, category, fee, change: 0n };
+};
+
+// What a sent seal transaction leaves the publisher: the project NFT at output 0 and the change, if any. The next seal
+// spends them at once, before any server has seen the transaction.
+export const sealOutputs = (u: UnsignedSealTx, txid: string) => ({
+  nft: { txid, vout: 0, satoshis: NFT_SATS, token: u.transaction.outputs[0].token } as Utxo,
+  funding: u.change ? [{ txid, vout: 2, satoshis: u.change }] : [],
+});
+
+export const FIRST_VERSION = "v1";
+
+export interface FirstSealInput {
+  publisherLock: Uint8Array;
+  funding: Utxo[];
+  files: FileEntry[];
+  name: string;
+  link: (category: string) => string;
+  onCreated?: (category: string) => void;
+}
+
+export type Send = (u: { transaction: Transaction; sourceOutputs: Output[]; fee: bigint }, step: string) => Promise<string>;
+
+// A judge's first try in one press: a new project is created and the dropped files are sealed as v1 (two wallet
+// confirmations, three when the coins first move to output 0). Every transaction is built and its fee checked on
+// placeholder txids before the first one is signed, so a wallet that is too small pays nothing.
+export const firstSeal = async ({ publisherLock, funding, files, name, link, onCreated }: FirstSealInput, send: Send) => {
+  const coins = funding.filter((u) => !u.token);
+  const prep = coins.some((u) => u.vout === 0) ? undefined : buildPrepTx({ publisherLock, funding: coins });
+  const steps = prep ? 3 : 2;
+  const genesisOn = (start: Utxo[]) =>
+    buildSealTx({
+      record: { kind: "genesis", version: name, manifestUrl: link(start.find((u) => u.vout === 0)?.txid ?? "") },
+      commitment: merkleRoot([]),
+      publisherLock,
+      funding: start,
+    });
+  const releaseAfter = (g: UnsignedSealTx, txid: string) =>
+    buildSealTx({
+      record: { kind: "release", version: FIRST_VERSION, manifestUrl: link(binToHex(g.category)) },
+      commitment: merkleRoot(files),
+      publisherLock,
+      ...sealOutputs(g, txid),
+    });
+  const placeholder = "00".repeat(32);
+  releaseAfter(genesisOn(prep ? [{ txid: placeholder, vout: 0, satoshis: prep.value }] : coins), placeholder);
+
+  const start = prep ? [{ txid: await send(prep, `Step 1 of 3: move your coins to output 0, where a project starts`), vout: 0, satoshis: prep.value }] : coins;
+  const g = genesisOn(start);
+  const genesis = await send(g, `Step ${steps - 1} of ${steps}: create the project`);
+  const category = binToHex(g.category);
+  onCreated?.(category);
+  const release = await send(releaseAfter(g, genesis), `Step ${steps} of ${steps}: seal the files as ${FIRST_VERSION}`);
+  return { category, genesis, release };
 };

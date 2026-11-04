@@ -35,6 +35,11 @@ Seal: connect a wallet that speaks WizardConnect (Paytaca or Cashonize), create 
 and the URL where `seal.json` will live, download `seal.json`, host it at that URL, then seal. A seal costs a few hundred satoshis
 in fees, and 1,000 satoshis stay on the NFT.
 
+Seal it now: to try it, connect the wallet, drop any file and press "Seal it now". The page creates a project named after the
+file and seals it as v1, with the project page as its link. That takes two wallet confirmations (three if your coins first have
+to move to output 0) and about 2,300 satoshis, 1,000 of which stay in your wallet on the NFT. Then open the project page and drop
+the same file (green), then an edited copy (red).
+
 From a release job: big installers do not need to pass through the browser. `seal-manifest.mjs` (served next to the page, no
 dependencies, Node 18 or later) writes `seal.json` and prints the root:
 
