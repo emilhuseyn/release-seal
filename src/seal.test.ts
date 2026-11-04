@@ -1,6 +1,6 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { badgeSnippets, checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, loadManifests, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
+import { badgeSnippets, checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, loadManifests, merkleRoot, parseManifest, pickList, projectId, readManifest, verdicts, type Manifest } from "./seal";
 import type { SealEvent } from "./chain";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
@@ -231,5 +231,23 @@ describe("badgeSnippets", () => {
   it("gives nothing for an id that is not a token category", () => {
     expect(badgeSnippets("https://x/", "ab".repeat(31))).toBeUndefined();
     expect(badgeSnippets("https://x/", `${"ab".repeat(31)}"><script>`)).toBeUndefined();
+  });
+});
+
+describe("projectId", () => {
+  const id = "ab".repeat(32);
+  it("takes a bare id, or the id inside a pasted project or badge link", () => {
+    expect(projectId(`  ${id.toUpperCase()} `)).toBe(id);
+    expect(projectId(`https://emilhuseyn.github.io/release-seal/?project=${id}`)).toBe(id);
+    expect(projectId(`https://emilhuseyn.github.io/release-seal/?x=1&project=${id.toUpperCase()}#top`)).toBe(id);
+    expect(projectId(badgeSnippets("https://emilhuseyn.github.io/release-seal/", id)!.markdown)).toBe(id);
+  });
+  it("gives nothing for a short, long or missing id", () => {
+    expect(projectId(id.slice(2))).toBeUndefined();
+    expect(projectId(`${id}00`)).toBeUndefined();
+    expect(projectId(`https://x/?project=${id}00`)).toBeUndefined();
+    expect(projectId(`https://x/?project=${id}g`)).toBeUndefined();
+    expect(projectId(`https://x/?notproject=${id}`)).toBeUndefined();
+    expect(projectId("")).toBeUndefined();
   });
 });

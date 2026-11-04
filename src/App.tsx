@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, loadManifests, parseManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { badgeSnippets, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
@@ -74,8 +74,11 @@ function Verify() {
         className="row"
         onSubmit={(e) => {
           e.preventDefault();
-          history.replaceState(null, "", `?project=${category}`);
-          load(category);
+          // a pasted project or badge link opens its project
+          const id = projectId(category) ?? category;
+          setCategory(id);
+          history.replaceState(null, "", `?project=${id}`);
+          load(id);
         }}
       >
         <input value={category} onChange={(e) => setCategory(e.target.value.trim())} placeholder="Project id (token category)" spellCheck={false} />

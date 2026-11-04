@@ -3,7 +3,7 @@ import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, type FileEntry, type Manifest } from "./seal";
+import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
 import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, wizardRequest, type Send, type Utxo } from "./tx";
 import { DropZone, short, Snippet } from "./ui";
 
@@ -256,7 +256,7 @@ export default function Publish() {
             </p>
           )}
           <div className="row">
-            <input value={project} onChange={(e) => setProject(e.target.value.trim().toLowerCase())} placeholder="Project id (empty to create a new project)" />
+            <input value={project} onChange={(e) => setProject(projectId(e.target.value) ?? e.target.value.trim().toLowerCase())} placeholder="Project id (empty to create a new project)" />
             {!project && <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New project name" />}
           </div>
           <div className="row">

@@ -263,6 +263,13 @@ export const verdicts = (
   return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks, mismatch }];
 };
 
+// The id from what a user pastes into an id box: the bare 64-hex category, or a project link or badge link that carries it.
+export const projectId = (text: string) => {
+  const t = text.trim();
+  const id = /^[0-9a-f]{64}$/i.test(t) ? t : /[?&#]project=([0-9a-f]{64})(?![0-9a-z])/i.exec(t)?.[1];
+  return id?.toLowerCase();
+};
+
 // What a maintainer pastes on a download page: a badge that opens this project's verify page. base is the app's own URL.
 export const badgeSnippets = (base: string, project: string) => {
   if (!/^[0-9a-f]{64}$/i.test(project)) return undefined;
