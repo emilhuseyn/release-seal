@@ -11,6 +11,7 @@ import {
   type Transaction,
 } from "@bitauth/libauth";
 import { decodeRecord, type SealRecord } from "./seal";
+import type { Utxo, WalletPath } from "./tx";
 
 export interface Rpc {
   request(method: string, ...params: (string | number | boolean)[]): Promise<unknown>;
@@ -119,6 +120,37 @@ export const listUnspent = async (rpc: Rpc, address: string) => {
         }
       : undefined,
   }));
+};
+
+// Cashonize, Paytaca and Selene are HD wallets: a judge's coins sit on receive/n and change/n, rarely all on receive/0. Each chain
+// the wallet shared is read until GAP addresses in a row have no history (the usual BIP44 gap), MAX addresses at most.
+export const walletCoins = async (
+  rpc: Rpc,
+  lockAt: (chain: number, index: number) => Uint8Array | undefined,
+  gap = 20,
+  max = 200,
+): Promise<Utxo[]> => {
+  const chain = async (name: string, child: number) => {
+    const found: Utxo[] = [];
+    if (!lockAt(child, 0)) return found;
+    let used = -1;
+    for (let from = 0; from <= used + gap && from < max; ) {
+      const to = Math.min(used + gap + 1, max);
+      const batch = Array.from({ length: to - from }, (_, k) => ({ index: from + k, address: addressOf(lockAt(child, from + k)!) }));
+      const seen = await Promise.all(batch.map(async (a) => (await history(rpc, a.address)).length > 0));
+      const hit = batch.filter((_, k) => seen[k]);
+      if (hit.length) used = hit[hit.length - 1].index;
+      const coins = await Promise.all(
+        hit.map(async (a) =>
+          (await listUnspent(rpc, a.address)).map((u): Utxo => ({ ...u, lock: lockAt(child, a.index), path: [name, a.index] as WalletPath })),
+        ),
+      );
+      found.push(...coins.flat());
+      from = to;
+    }
+    return found;
+  };
+  return (await Promise.all([chain("receive", 0), chain("change", 1)])).flat();
 };
 
 export interface HeldProject {

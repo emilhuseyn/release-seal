@@ -2,7 +2,7 @@ import { binToHex, hexToBin, publicKeyToP2pkhLockingBytecode, lockingBytecodeToC
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
+import { broadcast, heldProjects, walletCoins, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
 import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
@@ -95,17 +95,26 @@ export default function Publish() {
     return typeof r === "string" ? r : r.address;
   }, [lock]);
 
-  // Before any click the publisher sees whether the fee money arrived at this address and which projects it already holds.
+  // Every address of the wallet the page may spend from; pubHex is a dependency because xpubs can arrive after the manager.
+  const coinsNow = useCallback(async () => {
+    const m = wc.manager;
+    return walletCoins(await rpc(), (child, index) => {
+      const k = pubHex ? m?.getPubkey(child, BigInt(index)) : undefined;
+      return k ? publicKeyToP2pkhLockingBytecode({ publicKey: k }) : undefined;
+    });
+  }, [wc.manager, pubHex]);
+
+  // Before any click the publisher sees whether the fee money arrived in the wallet and which projects it already holds.
   const loadWallet = useCallback(async () => {
     if (!address) return;
     try {
-      const coins = await listUnspent(await rpc(), address);
+      const coins = await coinsNow();
       const sats = coins.filter((c) => !c.token).reduce((s, c) => s + c.satoshis, 0n);
       setWallet({ sats, projects: await heldProjects(await rpc(), coins) });
     } catch {
       setWallet("error");
     }
-  }, [address]);
+  }, [address, coinsNow]);
   useEffect(() => {
     loadWallet();
   }, [loadWallet]);
@@ -131,7 +140,7 @@ export default function Publish() {
     setStatus("Building the transaction...");
     setSent("");
     try {
-      const coins = await listUnspent(await rpc(), address);
+      const coins = await coinsNow();
       const mine = coins.filter((c) => c.token?.nft?.capability === "mutable");
       const nft = project ? mine.find((c) => binToHex(c.token!.category) === project) : undefined;
       const commitment = kind === "genesis" ? merkleRoot([]) : merkleRoot(files);
@@ -190,7 +199,7 @@ export default function Publish() {
       setUrl(link(c));
     };
     try {
-      const coins = await listUnspent(await rpc(), address);
+      const coins = await coinsNow();
       const r = await firstSeal(
         { publisherLock: lock, funding: coins, files, name: (name || files[0].name).slice(0, 32), link, onCreated: (c) => (created = c) },
         signAndSend,
@@ -261,23 +270,23 @@ export default function Publish() {
         </div>
       ) : (
         <div className="card">
-          <p className="muted">{wc.walletName} connected. Your projects live at this address, and it pays the fees.</p>
+          <p className="muted">{wc.walletName} connected. Your projects live at this address. Fees come from any address in this wallet.</p>
           <Snippet label="Publisher address" text={fundAddress} />
           {wallet === "error" ? (
             <p className="bad">
-              Could not read this address's coins. <button onClick={loadWallet}>Retry</button>
+              Could not read this wallet's coins. <button onClick={loadWallet}>Retry</button>
             </p>
           ) : (
             wallet && (
               <>
                 <p className={wallet.sats ? "muted" : "bad"}>
                   {wallet.sats
-                    ? `${wallet.sats.toLocaleString("en-US")} sats for fees at this address.`
-                    : "No BCH at this address yet. A project and its first releases need about 3,400 sats: send them to the address above."}
+                    ? `${wallet.sats.toLocaleString("en-US")} sats for fees in this wallet.`
+                    : "No BCH in this wallet yet. A project and its first releases need about 3,400 sats: send them to the address above."}
                 </p>
                 {wallet.projects.length > 0 && (
                   <div className="row">
-                    <span className="muted">Projects this address holds:</span>
+                    <span className="muted">Projects this wallet holds:</span>
                     {wallet.projects.map((p) => (
                       <button key={p.category} className={p.category === project ? "on" : ""} onClick={() => setProject(p.category)}>
                         {p.kind === "genesis" ? p.version : `${p.kind === "revoke" ? "revoked" : "sealed"} ${p.version}`} {short(p.category, 4)}

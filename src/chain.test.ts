@@ -13,7 +13,7 @@ import {
   type Transaction,
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { broadcast, heldProjects, walkProject, type Rpc } from "./chain";
+import { broadcast, heldProjects, walkProject, walletCoins, type Rpc } from "./chain";
 import { entryFor, merkleRoot, type SealRecord } from "./seal";
 import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
 
@@ -189,6 +189,58 @@ describe("heldProjects", () => {
       { category: a, kind: "release", version: "v1", txid: ra.txid },
       { category: b, kind: "genesis", version: "beta", txid: gb.txid },
     ]);
+  });
+});
+
+describe("walletCoins", () => {
+  // A P2PKH address per (chain, index); the hash only has to be distinct.
+  const lockAt = (child: number, index: number) => Uint8Array.from([0x76, 0xa9, 0x14, child, index, ...new Array(18).fill(7), 0x88, 0xac]);
+  const used = new Map<string, number>([
+    ["0/0", 1000],
+    ["0/19", 0],
+    ["0/30", 2500],
+    ["0/60", 9000],
+    ["1/2", 700],
+  ]);
+  const at = new Map<string, string>();
+  for (const child of [0, 1]) for (let i = 0; i < 100; i++) at.set(addr(lockAt(child, i)), `${child}/${i}`);
+  const fake = () => {
+    const asked: string[] = [];
+    const rpc: Rpc = {
+      request: async (method, address) => {
+        const k = at.get(address as string)!;
+        if (method === "blockchain.address.get_history") {
+          asked.push(k);
+          return used.has(k) ? [{ tx_hash: "ee".repeat(32), height: 900000 }] : [];
+        }
+        if (method === "blockchain.address.listunspent") {
+          const v = used.get(k);
+          return v ? [{ tx_hash: k.replace("/", "f").padStart(64, "0"), tx_pos: 1, height: 900000, value: v }] : [];
+        }
+        throw new Error(method);
+      },
+    };
+    return { rpc, asked };
+  };
+
+  it("finds coins past the first 20 addresses and on the change chain, and stops 20 unused addresses after the last used", async () => {
+    const f = fake();
+    const coins = await walletCoins(f.rpc, lockAt);
+    expect(coins.map((c) => [c.path, c.satoshis])).toEqual([
+      [["receive", 0], 1000n],
+      [["receive", 30], 2500n],
+      [["change", 2], 700n],
+    ]);
+    expect(coins.every((c) => binToHex(c.lock!) === binToHex(lockAt(c.path![0] === "receive" ? 0 : 1, c.path![1])))).toBe(true);
+    expect(f.asked.filter((k) => k.startsWith("0/")).length).toBe(51);
+    expect(f.asked.filter((k) => k.startsWith("1/")).length).toBe(23);
+  });
+
+  it("reads only the chains the wallet shared", async () => {
+    const f = fake();
+    const coins = await walletCoins(f.rpc, (child, index) => (child === 0 ? lockAt(child, index) : undefined));
+    expect(coins.map((c) => c.path![0])).toEqual(["receive", "receive"]);
+    expect(f.asked.some((k) => k.startsWith("1/"))).toBe(false);
   });
 });
 

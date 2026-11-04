@@ -20,6 +20,7 @@ import {
   SigningSerializationFlag,
   walletTemplateP2pkhNonHd,
   walletTemplateToCompilerBCH,
+  type HdPrivateNodeValid,
   type Output,
   type Transaction,
 } from "@bitauth/libauth";
@@ -27,7 +28,7 @@ import { decodeKeyExchangeURI, encodeKeyExchangeURI, generateKeyExchangeCredenti
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -273,12 +274,18 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
   const files = [entryFor("photo.jpg", new Uint8Array([7, 8, 9]))];
   const link = (c: string) => `https://example.org/release-seal/?project=${c}`;
 
-  const cashonize = (funding: Utxo[]) => {
-    const utxos = new Map<string, Output>(funding.map((c) => [`${c.txid}:${c.vout}`, { lockingBytecode: lock, valueSatoshis: c.satoshis }]));
+  // Cashonize and Paytaca take each input's key from inputPaths and never check it against the coin; a wrong key just fails.
+  const onlyReceive0 = (name: string, index: number) => {
+    expect([name, index]).toEqual(["receive", 0]);
+    return { key, pub };
+  };
+  const cashonize = (funding: Utxo[], keyAt: (name: string, index: number) => { key: Uint8Array; pub: Uint8Array } = onlyReceive0) => {
+    const utxos = new Map<string, Output>(funding.map((c) => [`${c.txid}:${c.vout}`, { lockingBytecode: c.lock ?? lock, valueSatoshis: c.satoshis }]));
     const steps: string[] = [];
     const send: Send = async (u, step) => {
       const wire = JSON.parse(JSON.stringify(wizardRequest(u, step)));
-      expect(wire.inputPaths).toEqual(u.transaction.inputs.map((_, i) => [i, "receive", 0]));
+      const keys = new Map((wire.inputPaths as [number, string, number][]).map(([i, name, index]) => [i, keyAt(name, index)]));
+      expect(keys.size).toBe(u.transaction.inputs.length);
       expect(wire.transaction.broadcast).toBe(true);
       const tx = decodeTransaction(hexToBin(wire.transaction.transaction));
       if (typeof tx === "string") throw new Error(tx);
@@ -288,9 +295,10 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
           { inputIndex, sourceOutputs: claimed, transaction: tx },
           { coveredBytecode: claimed[inputIndex].lockingBytecode, signingSerializationType: new Uint8Array([hashType]) },
         );
-        const sig = secp256k1.signMessageHashSchnorr(key, hash256(preimage));
+        const k = keys.get(inputIndex)!;
+        const sig = secp256k1.signMessageHashSchnorr(k.key, hash256(preimage));
         if (typeof sig === "string") throw new Error(sig);
-        input.unlockingBytecode = Uint8Array.from([...encodeDataPush(Uint8Array.from([...sig, hashType])), ...encodeDataPush(pub)]);
+        input.unlockingBytecode = Uint8Array.from([...encodeDataPush(Uint8Array.from([...sig, hashType])), ...encodeDataPush(k.pub)]);
       });
       const real = tx.inputs.map((i) => utxos.get(`${binToHex(i.outpointTransactionHash)}:${i.outpointIndex}`));
       expect(real.every(Boolean)).toBe(true);
@@ -325,6 +333,35 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
     const rv = buildSealTx({ record: { kind: "revoke", version: "v1", manifestUrl: link(r.category) }, commitment: root2, publisherLock: lock, ...held(v2id) });
     await w.send(rv, "revoke v1");
     expect(w.steps).toEqual(["Step 1 of 2: create the project", "Step 2 of 2: seal the files as v1", "v2", "revoke v1"]);
+  });
+
+  it("an HD wallet's coins on change/2 and receive/5 are signed with their own keys, with or without the move to output 0", async () => {
+    const seed = deriveHdPrivateNodeFromSeed(hexToBin("33".repeat(32)));
+    const chains: Record<string, HdPrivateNodeValid> = {
+      receive: deriveHdPath(seed, "m/44'/145'/0'/0"),
+      change: deriveHdPath(seed, "m/44'/145'/0'/1"),
+    };
+    const keyAt = (name: string, index: number) => {
+      const node = deriveHdPathRelative(chains[name], String(index)) as { privateKey: Uint8Array };
+      return { key: node.privateKey, pub: secp256k1.derivePublicKeyCompressed(node.privateKey) as Uint8Array };
+    };
+    const at = (path: WalletPath, txid: string, vout: number, satoshis: bigint): Utxo => ({
+      txid,
+      vout,
+      satoshis,
+      lock: publicKeyToP2pkhLockingBytecode({ publicKey: keyAt(...path).pub }),
+      path,
+    });
+    const publisherLock = publicKeyToP2pkhLockingBytecode({ publicKey: keyAt("receive", 0).pub });
+    for (const [vout, steps] of [[1, 3], [0, 2]]) {
+      const funding = [at(["change", 2], "cc".repeat(32), vout, 3000n), at(["receive", 5], "cd".repeat(32), 3, 2000n)];
+      const w = cashonize(funding, keyAt);
+      const r = await firstSeal({ publisherLock, funding, files, name: "p", link }, w.send);
+      expect(w.steps.length).toBe(steps);
+      const nft = w.utxos.get(`${r.release}:0`)!;
+      expect(binToHex(nft.lockingBytecode)).toBe(binToHex(publisherLock));
+      expect(binToHex(nft.token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
+    }
   });
 });
 
