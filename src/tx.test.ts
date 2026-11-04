@@ -3,11 +3,16 @@
 import {
   binToHex,
   createVirtualMachineBCH,
+  decodeTransaction,
+  encodeDataPush,
   encodeTransaction,
+  generateSigningSerializationBCH,
+  hash256,
   hashTransactionUiOrder,
   hexToBin,
   publicKeyToP2pkhLockingBytecode,
   secp256k1,
+  SigningSerializationFlag,
   walletTemplateP2pkhNonHd,
   walletTemplateToCompilerBCH,
   type Output,
@@ -15,7 +20,7 @@ import {
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, wizardRequest, type Send, type Utxo } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -222,5 +227,96 @@ describe("firstSeal", () => {
     await expect(firstSeal({ publisherLock: lock, funding: [coin("bb".repeat(32), 0, 1700n)], files, name: "p", link }, w.send)).rejects.toThrow(/Not enough/);
     await expect(firstSeal({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 1900n)], files, name: "p", link }, w.send)).rejects.toThrow(/Not enough/);
     expect(w.sent.length).toBe(0);
+  });
+});
+
+// Stands in for Cashonize's WizardConnect signer (cashonize-wallet src/utils/dapp/wizSigning.ts and signInput.ts, read 4 Nov):
+// the request crosses the relay as JSON, the wallet decodes the hex transaction and the source outputs it was told about, and
+// signs each input with Schnorr over SIGHASH_ALL | SIGHASH_UTXOS | SIGHASH_FORKID. UTXOS commits every signature to every
+// claimed source output, so the VM check runs against the coins that really exist (the funding, or outputs of transactions
+// already sent): a claimed value or token that differs from the chain fails here as it would on the network.
+describe("signed the way Cashonize signs a WizardConnect request", () => {
+  type WireToken = { category: string; amount: string; nft?: { capability?: "none" | "mutable" | "minting"; commitment?: string } };
+  type Wire = {
+    outpointTransactionHash: string;
+    outpointIndex: number;
+    sequenceNumber: number;
+    unlockingBytecode: string;
+    lockingBytecode: string;
+    valueSatoshis: string;
+    token?: WireToken;
+  };
+  const big = (s: string) => BigInt(/^<bigint: (\d+)n>$/.exec(s)![1]);
+  const fromWire = (w: Wire) => ({
+    outpointTransactionHash: hexToBin(w.outpointTransactionHash),
+    outpointIndex: w.outpointIndex,
+    sequenceNumber: w.sequenceNumber,
+    unlockingBytecode: hexToBin(w.unlockingBytecode),
+    lockingBytecode: hexToBin(w.lockingBytecode),
+    valueSatoshis: big(w.valueSatoshis),
+    ...(w.token && {
+      token: {
+        category: hexToBin(w.token.category),
+        amount: big(w.token.amount),
+        ...(w.token.nft && { nft: { capability: w.token.nft.capability ?? "none", commitment: hexToBin(w.token.nft.commitment ?? "") } }),
+      },
+    }),
+  });
+  const hashType = SigningSerializationFlag.allOutputs | SigningSerializationFlag.utxos | SigningSerializationFlag.forkId;
+  const files = [entryFor("photo.jpg", new Uint8Array([7, 8, 9]))];
+  const link = (c: string) => `https://example.org/release-seal/?project=${c}`;
+
+  const cashonize = (funding: Utxo[]) => {
+    const utxos = new Map<string, Output>(funding.map((c) => [`${c.txid}:${c.vout}`, { lockingBytecode: lock, valueSatoshis: c.satoshis }]));
+    const steps: string[] = [];
+    const send: Send = async (u, step) => {
+      const wire = JSON.parse(JSON.stringify(wizardRequest(u, step)));
+      expect(wire.inputPaths).toEqual(u.transaction.inputs.map((_, i) => [i, "receive", 0]));
+      expect(wire.transaction.broadcast).toBe(true);
+      const tx = decodeTransaction(hexToBin(wire.transaction.transaction));
+      if (typeof tx === "string") throw new Error(tx);
+      const claimed = (wire.transaction.sourceOutputs as Wire[]).map(fromWire);
+      tx.inputs.forEach((input, inputIndex) => {
+        const preimage = generateSigningSerializationBCH(
+          { inputIndex, sourceOutputs: claimed, transaction: tx },
+          { coveredBytecode: claimed[inputIndex].lockingBytecode, signingSerializationType: new Uint8Array([hashType]) },
+        );
+        const sig = secp256k1.signMessageHashSchnorr(key, hash256(preimage));
+        if (typeof sig === "string") throw new Error(sig);
+        input.unlockingBytecode = Uint8Array.from([...encodeDataPush(Uint8Array.from([...sig, hashType])), ...encodeDataPush(pub)]);
+      });
+      const real = tx.inputs.map((i) => utxos.get(`${binToHex(i.outpointTransactionHash)}:${i.outpointIndex}`));
+      expect(real.every(Boolean)).toBe(true);
+      expect(vm.verify({ sourceOutputs: real as Output[], transaction: tx })).toBe(true);
+      const bytes = encodeTransaction(tx);
+      expect(u.fee).toBeGreaterThanOrEqual(BigInt(bytes.length));
+      const txid = binToHex(hashTransactionUiOrder(bytes));
+      tx.inputs.forEach((i) => utxos.delete(`${binToHex(i.outpointTransactionHash)}:${i.outpointIndex}`));
+      tx.outputs.forEach((o, vout) => utxos.set(`${txid}:${vout}`, o));
+      steps.push(step);
+      return txid;
+    };
+    return { utxos, steps, send };
+  };
+
+  it("the request survives the relay's JSON.stringify and every step of Seal it now verifies against the real coins", async () => {
+    const w = cashonize([coin("aa".repeat(32), 1, 3000n), coin("ab".repeat(32), 7, 2000n)]);
+    const r = await firstSeal({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 3000n), coin("ab".repeat(32), 7, 2000n)], files, name: "p", link }, w.send);
+    expect(w.steps.length).toBe(3);
+    expect(binToHex(w.utxos.get(`${r.release}:0`)!.token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
+  });
+
+  it("a later release and a revoke spend the unconfirmed NFT and change the page knows about", async () => {
+    const w = cashonize([coin("bb".repeat(32), 0, 8000n)]);
+    const r = await firstSeal({ publisherLock: lock, funding: [coin("bb".repeat(32), 0, 8000n)], files, name: "p", link }, w.send);
+    const held = (txid: string) => ({
+      nft: { txid, vout: 0, satoshis: NFT_SATS, token: w.utxos.get(`${txid}:0`)!.token },
+      funding: [{ txid, vout: 2, satoshis: w.utxos.get(`${txid}:2`)!.valueSatoshis }],
+    });
+    const v2 = buildSealTx({ record: { kind: "release", version: "v2", manifestUrl: link(r.category) }, commitment: root2, publisherLock: lock, ...held(r.release) });
+    const v2id = await w.send(v2, "v2");
+    const rv = buildSealTx({ record: { kind: "revoke", version: "v1", manifestUrl: link(r.category) }, commitment: root2, publisherLock: lock, ...held(v2id) });
+    await w.send(rv, "revoke v1");
+    expect(w.steps).toEqual(["Step 1 of 2: create the project", "Step 2 of 2: seal the files as v1", "v2", "revoke v1"]);
   });
 });

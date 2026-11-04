@@ -2,6 +2,7 @@
 // Genesis: input 0 must spend output 0 of some transaction, whose txid becomes the project's token category.
 // Release and revoke: input 0 spends the current mutable NFT, output 0 recreates it with the new commitment.
 import { binToHex, encodeTransaction, hexToBin, type Output, type Transaction } from "@bitauth/libauth";
+import { sourceOutputToRelay } from "@wizardconnect/core/hdwalletv1-serialize";
 import { encodeRecord, merkleRoot, type FileEntry, type SealRecord } from "./seal";
 
 export interface Utxo {
@@ -38,10 +39,12 @@ const sizeWith = (tx: Transaction, unlockSize: number) =>
   encodeTransaction({ ...tx, inputs: tx.inputs.map((i) => ({ ...i, unlockingBytecode: new Uint8Array(unlockSize) })) }).length;
 
 // WizardConnect (hdwalletv1) request: every input sits at the wallet's receive/0 address, the one the publisher NFT lives on.
+// The relay sends it with plain JSON.stringify, so it goes in the reference wire format: the transaction as hex, the source
+// outputs through the library's own serializer (hex bytes, "<bigint: Xn>" amounts). libauth objects would throw on the bigints.
 export const wizardRequest = (u: Pick<UnsignedSealTx, "transaction" | "sourceOutputs">, userPrompt: string) => ({
   transaction: {
-    transaction: u.transaction,
-    sourceOutputs: u.transaction.inputs.map((input, i) => ({ ...input, ...u.sourceOutputs[i] })),
+    transaction: binToHex(encodeTransaction(u.transaction)),
+    sourceOutputs: u.transaction.inputs.map((input, i) => sourceOutputToRelay({ ...input, ...u.sourceOutputs[i] })),
     broadcast: true,
     userPrompt,
   },
