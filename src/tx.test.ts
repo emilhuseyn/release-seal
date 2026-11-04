@@ -23,10 +23,11 @@ import {
   type Output,
   type Transaction,
 } from "@bitauth/libauth";
+import { decodeKeyExchangeURI, encodeKeyExchangeURI, generateKeyExchangeCredentials } from "@wizardconnect/core";
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -349,5 +350,20 @@ describe("receiveKey", () => {
     deliver(ready([]));
     deliver(ready([{ name: "receive", xpub }]));
     expect(keys).toEqual(["", binToHex(child.publicKey)]);
+  });
+});
+
+describe("pairLinks", () => {
+  it("hands Cashonize's web wallet the exact pairing code in one ?uri= parameter", () => {
+    const c = generateKeyExchangeCredentials();
+    const { uri } = encodeKeyExchangeURI(c.publicKey, c.secret);
+    expect(uri).toMatch(/^wiz:\/\/\?.*&/);
+    const { app, web } = pairLinks(uri);
+    expect(app).toBe(uri);
+    const u = new URL(web);
+    expect(u.origin + u.pathname).toBe("https://cashonize.com/");
+    expect([...u.searchParams.keys()]).toEqual(["uri"]);
+    expect(u.searchParams.get("uri")).toBe(uri);
+    expect(decodeKeyExchangeURI(u.searchParams.get("uri")!)).toMatchObject({ publicKey: c.publicKey, secret: c.secret });
   });
 });
