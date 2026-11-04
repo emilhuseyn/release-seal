@@ -6,16 +6,19 @@ interface Fake {
   up: boolean;
   dropped: boolean;
   flaky: boolean;
+  hang: boolean;
   opened: number;
   closed: number;
 }
 
 const farm = (hosts: string[]) => {
-  const state = new Map<string, Fake>(hosts.map((h) => [h, { up: true, dropped: false, flaky: false, opened: 0, closed: 0 }]));
+  const state = new Map<string, Fake>(hosts.map((h) => [h, { up: true, dropped: false, flaky: false, hang: false, opened: 0, closed: 0 }]));
   const log: string[] = [];
+  const held = new Map<string, () => void>();
   const connect = async (host: string): Promise<Conn> => {
     const s = state.get(host)!;
     log.push(host);
+    if (s.hang) await new Promise<void>((r) => held.set(host, r));
     if (!s.up) throw new Error(`${host} timed out`);
     s.opened++;
     s.dropped = false;
@@ -34,7 +37,7 @@ const farm = (hosts: string[]) => {
       },
     };
   };
-  return { state, log, connect };
+  return { state, log, connect, release: (host: string) => held.get(host)!() };
 };
 
 describe("rpc failover", () => {
@@ -89,6 +92,34 @@ describe("rpc failover", () => {
     expect(out).toEqual(["b:x:", "b:y:", "b:z:"]);
     expect(f.state.get("b")!.opened).toBe(1);
     expect(f.log).toEqual(["a", "b"]);
+  });
+
+  it("starts the next server when one hangs, keeps the first to connect and closes the late one", async () => {
+    const f = farm(["a", "b", "c"]);
+    f.state.get("a")!.hang = true;
+    const r = await makeRpc(f.connect, ["a", "b", "c"], 20)();
+    expect(await r.request("m")).toBe("b:m:");
+    expect(f.log).toEqual(["a", "b"]);
+    f.release("a");
+    await new Promise((done) => setTimeout(done, 0));
+    expect(f.state.get("a")!.opened).toBe(1);
+    expect(f.state.get("a")!.closed).toBe(1);
+    expect(await r.request("m")).toBe("b:m:");
+    expect(f.log).toEqual(["a", "b"]);
+  });
+
+  it("fails only when every server has failed, hung ones included", async () => {
+    const f = farm(["a", "b"]);
+    f.state.get("a")!.hang = true;
+    f.state.get("b")!.up = false;
+    const p = makeRpc(f.connect, ["a", "b"], 20)();
+    let settled = false;
+    p.catch(() => {}).finally(() => (settled = true));
+    await new Promise((done) => setTimeout(done, 60));
+    expect(settled).toBe(false);
+    f.state.get("a")!.up = false;
+    f.release("a");
+    await expect(p).rejects.toThrow("No Fulcrum server answered");
   });
 
   it("gives up after one retry", async () => {

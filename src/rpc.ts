@@ -1,8 +1,17 @@
 import { ElectrumClient } from "@electrum-cash/network";
 import type { Rpc } from "./chain";
 
-// Public Fulcrum servers that answered over wss on 3 Nov 2026 (electroncash.de timed out).
-export const SERVERS = ["bch.imaginary.cash", "bch.loping.net"];
+// Public Fulcrum servers (2.1.4) that answered every call the page makes over wss on 4 Nov 2026, one per operator;
+// electroncash.de, bch0.kister.net and bch.cyberbits.eu timed out.
+export const SERVERS = [
+  "bch.imaginary.cash",
+  "bch.loping.net",
+  "electroncash.dk",
+  "fulcrum.criptolayer.net",
+  "bch.soul-dev.com",
+  "fulcrum.greyh.at",
+  "blackie.c3-soft.com",
+];
 
 // The connection failed, as opposed to an error the server answered with (that one carries the JSON-RPC error as its cause).
 export class ConnectionError extends Error {}
@@ -39,23 +48,44 @@ const connectTo: Connect = async (host) => {
   };
 };
 
+// Servers are tried in order, but one that has not connected after `stagger` ms does not hold up the next: the next starts
+// beside it, the first to connect is kept and any later one is closed. A hung server costs `stagger`, not the 8 s timeout.
+const race = (connect: Connect, hosts: string[], stagger: number) =>
+  new Promise<Conn>((resolve, reject) => {
+    let next = 0;
+    let failed = 0;
+    let won = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      clearTimeout(timer);
+      if (won || next >= hosts.length) return;
+      connect(hosts[next++]).then(
+        (conn) => {
+          if (won) return conn.close();
+          won = true;
+          clearTimeout(timer);
+          resolve(conn);
+        },
+        () => {
+          if (++failed === hosts.length) reject(new Error("No Fulcrum server answered"));
+          else start();
+        },
+      );
+      timer = setTimeout(start, stagger);
+    };
+    start();
+  });
+
 // One shared connection. When it drops (server restart, laptop asleep, tab left open), the next request closes it, moves that
 // server to the back and retries once on a fresh connection, so a page left open does not stay broken until a reload.
-export const makeRpc = (connect: Connect, servers: string[]) => {
+export const makeRpc = (connect: Connect, servers: string[], stagger = 2500) => {
   let order = [...servers];
   let open: Promise<Conn> | undefined;
   const get = () =>
-    (open ??= (async () => {
-      for (const host of order) {
-        try {
-          return await connect(host);
-        } catch {
-          // try the next server
-        }
-      }
+    (open ??= race(connect, order, stagger).catch((e) => {
       open = undefined;
-      throw new Error("No Fulcrum server answered");
-    })());
+      throw e;
+    }));
   const shared: Rpc = {
     request: async (method, ...params) => {
       for (let attempt = 0; ; attempt++) {
