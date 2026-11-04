@@ -1,0 +1,30 @@
+name: Test the release action
+
+on:
+  push:
+    branches: [main]
+    paths: [action.yml, seal-action.sh, public/seal-manifest.mjs, .github/workflows/action-test.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: seal
+        uses: ./
+        with:
+          version: v1.0.0
+          files: |
+            public/demo/v1.0.0/*.zip
+            public/demo/v1.0.0/README.txt
+      - name: The root is the judges' demo release root
+        env:
+          ROOT: ${{ steps.seal.outputs.root }}
+          LIST: ${{ steps.seal.outputs.path }}
+        run: |
+          test "$ROOT" = a65703845b8f66c00e74c3178bac46d2586ded92005a4fe8abab43f23b803f6d
+          node -e "const m = JSON.parse(require('fs').readFileSync(process.env.LIST, 'utf8')); if (m.version !== 'v1.0.0' || m.files.length !== 2) process.exit(1)"

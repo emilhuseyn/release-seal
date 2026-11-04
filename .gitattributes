@@ -1,2 +1,4 @@
 # Sealed demo files: hashes must match byte for byte on every checkout.
 public/demo/** -text
+# Run by Actions on Linux: keep LF.
+*.sh text eol=lf

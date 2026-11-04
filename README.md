@@ -52,6 +52,28 @@ Publish `seal.json` with the release, then drop just that file on the Seal tab a
 it reads, and any release files dropped with it must be on that list. Copy the script into your own repo rather than fetching it
 at build time, so a change on this site cannot reach your releases. No wallet key goes near the job.
 
+In GitHub Actions the same script runs as an action (`action.yml` here). Pin it to a full commit id for the same reason:
+
+```yaml
+permissions:
+  contents: write
+steps:
+  - id: seal
+    uses: emilhuseyn/release-seal@<commit id>
+    with:
+      files: |
+        dist/*.zip
+        dist/*.tar.gz
+  - run: gh release upload "$GITHUB_REF_NAME" seal.json
+    env:
+      GH_TOKEN: ${{ github.token }}
+```
+
+On a tag push the version is the tag name. The step writes `seal.json`, gives its root as the `root` output, and puts the next
+step in the job summary: drop that file on the Seal tab and confirm in the wallet. A line that matches no file stops the job, so a
+release is never sealed with a file missing. This repo's own workflow runs the action on the judges' demo release and checks the
+root.
+
 Badge: an open project's page has a "Badge for your download page" box with HTML and Markdown to copy. The badge links to
 `?project=<id>`, so a user who clicks it lands on the verify page with the project loaded and only has to drop the file.
 

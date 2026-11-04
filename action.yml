@@ -1,0 +1,36 @@
+name: Release Seal manifest
+description: Write seal.json for release files and output the Merkle root the Release Seal page puts on Bitcoin Cash. No wallet key is used.
+inputs:
+  files:
+    description: Release files, one path or glob per line.
+    required: true
+  version:
+    description: Release version, for example v1.2.0. Defaults to the tag name on a tag push.
+    required: false
+    default: ""
+  project:
+    description: The 64-hex project id the Seal tab printed. Optional.
+    required: false
+    default: ""
+  out:
+    description: Where to write the list.
+    required: false
+    default: seal.json
+outputs:
+  root:
+    description: Merkle root of the file list, the value the Seal tab seals on chain.
+    value: ${{ steps.seal.outputs.root }}
+  path:
+    description: Path of the written seal.json.
+    value: ${{ steps.seal.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: seal
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        VERSION: ${{ inputs.version }}
+        PROJECT: ${{ inputs.project }}
+        OUT: ${{ inputs.out }}
+      run: bash "$GITHUB_ACTION_PATH/seal-action.sh"
