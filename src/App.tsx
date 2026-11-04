@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, parseManifest, readManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { badgeSnippets, loadManifests, parseManifest, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
@@ -37,20 +37,10 @@ function Verify() {
     try {
       const ev = await walkProject(await rpc(), cat.toLowerCase());
       if (!ev.length) throw new Error("No seal records found for this project.");
-      const ms: Record<string, Manifest> = {};
-      const bad: Record<string, boolean> = {};
-      for (const e of ev.filter((x) => x.kind === "release")) {
-        try {
-          // a replaced list must not shadow an honest seal.json the user drops, so only a list with the chain's root is kept
-          const m = readManifest(await (await fetch(e.manifestUrl)).text(), e.commitment);
-          if (m === "wrong") bad[e.txid] = true;
-          else if (m) ms[e.txid] = m;
-        } catch {
-          // a missing manifest shows as unverifiable for that release
-        }
-      }
-      setManifests(ms);
-      setWrong(bad);
+      // a replaced list must not shadow an honest seal.json the user drops, so only a list with the chain's root is kept
+      const { lists, wrong } = await loadManifests(ev, async (url, signal) => (await fetch(url, { signal })).text());
+      setManifests(lists);
+      setWrong(wrong);
       setEvents(ev);
       setOpened(cat.toLowerCase());
     } catch (e) {

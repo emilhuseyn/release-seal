@@ -1,6 +1,6 @@
 import { binToHex, hexToBin, sha256, utf8ToBin } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { badgeSnippets, checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
+import { badgeSnippets, checkFiles, decodeRecord, encodeRecord, entryFor, findDuplicates, isWholeRelease, loadManifests, merkleRoot, parseManifest, pickList, readManifest, verdicts, type Manifest } from "./seal";
 import type { SealEvent } from "./chain";
 
 const files = ["a.tar.gz", "b.zip", "c.txt", "d.sig", "e.json"].map((n) => entryFor(n, utf8ToBin(`content of ${n}`)));
@@ -109,6 +109,32 @@ describe("without a fetched file list", () => {
     expect(readManifest(swapped, hex)).toBe("wrong");
     expect(readManifest("{}", hex)).toBeUndefined();
     expect(readManifest("<!doctype html><title>404</title>", hex)).toBeUndefined();
+  });
+
+  it("fetches every hosted list at once and gives up on a site that hangs", async () => {
+    const hex = binToHex(root);
+    const good = JSON.stringify({ protocol: 1, files });
+    const swapped = JSON.stringify({ protocol: 1, files: files.map((f, i) => (i ? f : entryFor(f.name, utf8ToBin("evil")))) });
+    const ev = (kind: SealEvent["kind"], txid: string, url: string): SealEvent =>
+      ({ kind, txid, commitment: hex, version: "v1", manifestUrl: url, height: 1, publisher: "q" });
+    const asked: string[] = [];
+    const aborted: string[] = [];
+    const get = (url: string, signal: AbortSignal) => {
+      asked.push(url);
+      signal.addEventListener("abort", () => aborted.push(url));
+      if (url === "hang") return new Promise<string>(() => {});
+      if (url === "dead") return Promise.reject(new Error("offline"));
+      return new Promise<string>((ok) => setTimeout(() => ok(url === "swapped" ? swapped : good), 80));
+    };
+    const events = [ev("genesis", "g", "site"), ev("release", "a", "hang"), ev("release", "b", "good"), ev("release", "c", "swapped"), ev("release", "d", "dead"), ev("release", "e", "good")];
+    const t0 = Date.now();
+    const { lists, wrong } = await loadManifests(events, get, 100);
+    // one after another this takes 100 + 3 x 80 ms
+    expect(Date.now() - t0).toBeLessThan(250);
+    expect(asked).not.toContain("site");
+    expect(Object.keys(lists).sort()).toEqual(["b", "e"]);
+    expect(wrong).toEqual({ c: true });
+    expect(aborted).toEqual(["hang"]);
   });
 
   it("accepts the full set of files as the release, renamed downloads included", () => {

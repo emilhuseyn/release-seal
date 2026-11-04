@@ -144,6 +144,37 @@ export const readManifest = (text: string, commitment: string): Manifest | "wron
   return binToHex(merkleRoot(m.files)) === commitment ? m : "wrong";
 };
 
+// The hosted lists of every release, fetched at once. A download site that is down or hangs (our own threat model) gets ms, then
+// counts as no list, so the timeline still opens and the dropped files or a dropped seal.json decide.
+export const loadManifests = async (events: SealEvent[], get: (url: string, signal: AbortSignal) => Promise<string>, ms = 8000) => {
+  const lists: Record<string, Manifest> = {};
+  const wrong: Record<string, boolean> = {};
+  await Promise.all(
+    events
+      .filter((e) => e.kind === "release")
+      .map(async (e) => {
+        const ctrl = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<never>((_, fail) => {
+          timer = setTimeout(() => {
+            ctrl.abort();
+            fail(new Error("timed out"));
+          }, ms);
+        });
+        try {
+          const m = readManifest(await Promise.race([get(e.manifestUrl, ctrl.signal), late]), e.commitment);
+          if (m === "wrong") wrong[e.txid] = true;
+          else if (m) lists[e.txid] = m;
+        } catch {
+          // a missing list shows as unverifiable for that release
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+  );
+  return { lists, wrong };
+};
+
 // With no file list at all: the dropped files are exactly the release when their own root is the commitment.
 export const isWholeRelease = (dropped: FileEntry[], commitment: Uint8Array) => {
   const want = binToHex(commitment);
