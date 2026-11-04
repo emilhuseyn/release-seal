@@ -187,3 +187,38 @@ input {
   align-items: center;
   justify-content: space-between;
 }
+
+/* Above the WizardConnect dialog (z-index 40), in its colours; the dialog is lifted so the bar never covers the QR. */
+.wc-backdrop {
+  padding-bottom: 140px !important;
+}
+
+.pairbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  padding: 12px 16px;
+  font-size: 0.9rem;
+  color: #ffffff;
+  background: #1a1f2e;
+  border-top: 1px solid #374151;
+}
+
+.pairbar p {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.pairbar p + p {
+  margin-top: 4px;
+}
+
+.pairbar a {
+  color: #3ccf8e;
+}
+
+.pairbar .muted {
+  color: #9ca3af;
+}

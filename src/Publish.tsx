@@ -1,11 +1,29 @@
 import { binToHex, hexToBin, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { broadcast, heldProjects, listUnspent, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
 import { DropZone, short, Snippet } from "./ui";
+
+// The QR dialog takes no children, so pairing without a second device sits in a bar of its own above the dialog's backdrop.
+export function PairBar({ uri }: { uri: string }) {
+  const links = pairLinks(uri);
+  return (
+    <div className="pairbar">
+      <p>
+        No phone to scan with? <a href={links.app}>Open in a wallet app on this device</a> or{" "}
+        <a href={links.web} target="_blank" rel="noopener noreferrer">
+          open the Cashonize web wallet
+        </a>
+        .
+      </p>
+      <p className="muted">Paytaca: press Copy above and paste the code in its WizardConnect page.</p>
+    </div>
+  );
+}
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
 export default function Publish() {
@@ -228,7 +246,9 @@ export default function Publish() {
             qrUri={wc.qrUri ?? ""}
             title="Scan with your wallet"
             subtitle={stale ? "This code is over 30 seconds old and may not pair. Close this and press New QR code." : undefined}
+            className="wc-backdrop"
           />
+          {showQr && wc.uri && createPortal(<PairBar uri={wc.uri} />, document.body)}
         </div>
       ) : !lock ? (
         <div className="card">
