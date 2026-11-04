@@ -203,6 +203,10 @@ export default function Publish() {
       {!ready ? (
         <div className="card">
           <p>Connect a Bitcoin Cash wallet that speaks WizardConnect: Cashonize, Paytaca or Selene (2026.10 or newer).</p>
+          <p className="muted">
+            Once it pairs, drop any file and press <b>Seal it now</b> to seal it on mainnet for about 2,300 sats, 1,000 of which stay in
+            your wallet on the seal NFT. Your wallet asks before each signature.
+          </p>
           <button
             onClick={() => {
               wc.connect();
