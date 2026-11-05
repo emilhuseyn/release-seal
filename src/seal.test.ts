@@ -48,6 +48,11 @@ describe("records", () => {
     expect(decodeRecord(encodeRecord(r))).toEqual(r);
   });
 
+  it("round-trips a hand-over record with a reason and no URL", () => {
+    const r = { kind: "move" as const, version: "key rotation", manifestUrl: "" };
+    expect(decodeRecord(encodeRecord(r))).toEqual(r);
+  });
+
   it("rejects other OP_RETURN data", () => {
     expect(decodeRecord(Uint8Array.from([0x6a, 0x04, ...utf8ToBin("MEMO")]))).toBeUndefined();
     expect(decodeRecord(Uint8Array.from([0x76, 0xa9]))).toBeUndefined();

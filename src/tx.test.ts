@@ -15,6 +15,7 @@ import {
   hash256,
   hashTransactionUiOrder,
   hexToBin,
+  lockingBytecodeToCashAddress,
   publicKeyToP2pkhLockingBytecode,
   secp256k1,
   SigningSerializationFlag,
@@ -28,7 +29,7 @@ import { decodeKeyExchangeURI, encodeKeyExchangeURI, generateKeyExchangeCredenti
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -83,6 +84,48 @@ describe("buildSealTx", () => {
     expect(vm.verify({ sourceOutputs: r.sourceOutputs, transaction: rs })).toBe(true);
     expect(binToHex(rs.outputs[0].token!.nft!.commitment)).toBe(binToHex(root2));
     expect(binToHex(rs.outputs[0].token!.category)).toBe("bb".repeat(32));
+  });
+
+  it("a hand-over sends the NFT with its root to the next maintainer, keeps the change, and verifies in the VM", () => {
+    const next = publicKeyToP2pkhLockingBytecode({ publicKey: secp256k1.derivePublicKeyCompressed(hexToBin("44".repeat(32))) as Uint8Array });
+    const nft: Utxo = {
+      txid: "c4".repeat(32),
+      vout: 0,
+      satoshis: NFT_SATS,
+      token: { amount: 0n, category: hexToBin("d4".repeat(32)), nft: { capability: "mutable", commitment: root1 } },
+    };
+    const m = buildSealTx({
+      record: { kind: "move", version: "key rotation", manifestUrl: "" },
+      commitment: root1,
+      publisherLock: lock,
+      funding: [coin("e4".repeat(32), 1, 5000n)],
+      nft,
+      holderLock: next,
+    });
+    const ms = sign(m.transaction, m.sourceOutputs);
+    expect(vm.verify({ sourceOutputs: m.sourceOutputs, transaction: ms })).toBe(true);
+    expect(binToHex(ms.outputs[0].lockingBytecode)).toBe(binToHex(next));
+    expect(binToHex(ms.outputs[0].token!.nft!.commitment)).toBe(binToHex(root1));
+    expect(binToHex(ms.outputs[0].token!.category)).toBe("d4".repeat(32));
+    expect(binToHex(ms.outputs[2].lockingBytecode)).toBe(binToHex(lock));
+    expect(decodeRecord(ms.outputs[1].lockingBytecode)).toEqual({ kind: "move", version: "key rotation", manifestUrl: "" });
+
+    const release = { kind: "release" as const, version: "v2", manifestUrl: "https://example.org/v2" };
+    expect(() => buildSealTx({ record: release, commitment: root2, publisherLock: lock, funding: [coin("e4".repeat(32), 1, 5000n)], nft, holderLock: next })).toThrow(/only a hand-over/);
+    expect(() => buildSealTx({ record: { ...release, kind: "move" }, commitment: root1, publisherLock: lock, funding: [coin("e4".repeat(32), 1, 5000n)], nft })).toThrow(/needs the next maintainer/);
+  });
+
+  it("takes only another mainnet token address as the next maintainer", () => {
+    const next = publicKeyToP2pkhLockingBytecode({ publicKey: secp256k1.derivePublicKeyCompressed(hexToBin("44".repeat(32))) as Uint8Array });
+    const at = (bytecode: Uint8Array, prefix: "bitcoincash" | "bchtest", tokenSupport: boolean) =>
+      (lockingBytecodeToCashAddress({ bytecode, prefix, tokenSupport }) as { address: string }).address;
+    const z = at(next, "bitcoincash", true);
+    expect(binToHex(holderLockOf(z, lock))).toBe(binToHex(next));
+    expect(binToHex(holderLockOf(` ${z.replace("bitcoincash:", "")} `, lock))).toBe(binToHex(next));
+    expect(() => holderLockOf(at(next, "bitcoincash", false), lock)).toThrow(/starts with z/);
+    expect(() => holderLockOf(at(next, "bchtest", true), lock)).toThrow(/mainnet/);
+    expect(() => holderLockOf(at(lock, "bitcoincash", true), lock)).toThrow(/own address/);
+    expect(() => holderLockOf(z.slice(0, -1) + (z.endsWith("q") ? "p" : "q"), lock)).toThrow(/mainnet/);
   });
 
   it("a release that tries to mint a second category fails the VM", () => {

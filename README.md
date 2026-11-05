@@ -16,13 +16,15 @@ holder of the project's token can make.
 - A project is a CashTokens category. Its mutable NFT is the right to publish.
 - Sealing a release spends that NFT and recreates it with a new 32-byte commitment: the Merkle root (RFC 6962 tree hash, SHA-256)
   of the release's file list, with the name, size and SHA-256 of each file.
-- That transaction also carries an OP_RETURN record: `RSEAL`, protocol 1, the kind (create, release or revoke), the version, and a
-  link to the file list (`seal.json`).
+- That transaction also carries an OP_RETURN record: `RSEAL`, protocol 1, the kind (create, release, revoke or hand-over), the
+  version, and a link to the file list (`seal.json`).
 - Checking needs no wallet. The page reads the chain from public Fulcrum servers, follows the NFT from release to release, hashes
   the dropped files in the browser and compares them with the sealed list. Nothing is uploaded.
 
-Sending the NFT to another address hands the project over. A plain token send from any wallet does it; the timeline then shows
-"moved to" the new address, and from there on only the new holder can seal. A revoke record marks a bad release, and the page
+Sending the NFT to another address hands the project over. On the Seal tab, Hand over does it with a record, so the
+timeline shows "handed over to" the new address with the reason given (a key rotation, a new maintainer). It takes only a token
+address (z...), so the NFT cannot land in a wallet that would spend it as fee money. A plain token send from any wallet works
+too and shows as "moved to". Either way, from there on only the new holder can seal. A revoke record marks a bad release, and the page
 then shows it in red.
 
 The check does not depend on the website either. If `seal.json` is gone, cannot be fetched or was swapped, drop a copy from anywhere (a mirror,

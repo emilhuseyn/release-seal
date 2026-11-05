@@ -6,7 +6,8 @@ import type { SealEvent } from "./chain";
 
 export const PREFIX = utf8ToBin("RSEAL");
 export const PROTOCOL = 1;
-export const KIND = { genesis: 0, release: 1, revoke: 2 } as const;
+// move: the holder hands the NFT to the next maintainer; the version field carries a short reason and the URL may be empty.
+export const KIND = { genesis: 0, release: 1, revoke: 2, move: 3 } as const;
 export type Kind = keyof typeof KIND;
 
 export interface FileEntry {

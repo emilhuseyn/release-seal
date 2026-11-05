@@ -1,7 +1,7 @@
 // Builds unsigned seal transactions. The wallet (WizardConnect) signs every P2PKH input; this module never sees a key.
 // Genesis: input 0 must spend output 0 of some transaction, whose txid becomes the project's token category.
 // Release and revoke: input 0 spends the current mutable NFT, output 0 recreates it with the new commitment.
-import { binToHex, encodeTransaction, hexToBin, type Output, type Transaction } from "@bitauth/libauth";
+import { binToHex, cashAddressToLockingBytecode, encodeTransaction, hexToBin, type Output, type Transaction } from "@bitauth/libauth";
 import { sourceOutputToRelay } from "@wizardconnect/core/hdwalletv1-serialize";
 import { encodeRecord, merkleRoot, type FileEntry, type SealRecord } from "./seal";
 
@@ -25,6 +25,8 @@ export interface SealTxInput {
   publisherLock: Uint8Array;
   funding: Utxo[];
   nft?: Utxo;
+  // Where the NFT goes: the publisher, or on a hand-over (kind move) the next maintainer. Change always stays with the publisher.
+  holderLock?: Uint8Array;
   feeRate?: bigint;
 }
 
@@ -94,8 +96,9 @@ export const buildPrepTx = ({ publisherLock, funding, feeRate = 1n }: Pick<SealT
   return { transaction: tx, sourceOutputs, fee, value, paths: coins.map((u) => u.path ?? PUBLISHER) };
 };
 
-export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, feeRate = 1n }: SealTxInput): UnsignedSealTx => {
+export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, holderLock, feeRate = 1n }: SealTxInput): UnsignedSealTx => {
   if (commitment.length > 40) throw new Error("NFT commitment is limited to 40 bytes");
+  if ((record.kind === "move") !== !!holderLock) throw new Error("A hand-over needs the next maintainer's address, and only a hand-over takes one");
   const coins = funding.filter((u) => !u.token);
   let ordered: Utxo[];
   let category: Uint8Array;
@@ -105,7 +108,7 @@ export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, f
     ordered = [first, ...coins.filter((u) => u !== first)];
     category = hexToBin(first.txid);
   } else {
-    if (!nft?.token?.nft || nft.token.nft.capability !== "mutable") throw new Error("Release and revoke need the project's mutable NFT");
+    if (!nft?.token?.nft || nft.token.nft.capability !== "mutable") throw new Error("Release, revoke and hand-over need the project's NFT in this wallet");
     ordered = [nft, ...coins];
     category = nft.token.category;
   }
@@ -114,7 +117,7 @@ export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, f
   const paths = ordered.map((u) => u.path ?? PUBLISHER);
   const inputTotal = ordered.reduce((s, u) => s + u.satoshis, 0n);
   const outputs: Output[] = [
-    { lockingBytecode: publisherLock, valueSatoshis: NFT_SATS, token: { amount: 0n, category, nft: { capability: "mutable", commitment } } },
+    { lockingBytecode: holderLock ?? publisherLock, valueSatoshis: NFT_SATS, token: { amount: 0n, category, nft: { capability: "mutable", commitment } } },
     { lockingBytecode: encodeRecord(record), valueSatoshis: 0n },
   ];
   const tx: Transaction = {
@@ -140,6 +143,17 @@ export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, f
   const fee = inputTotal - NFT_SATS;
   if (fee < BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate) throw new Error("Not enough BCH in the wallet for the fee");
   return { transaction: tx, sourceOutputs, category, fee, change: 0n, paths };
+};
+
+// The next maintainer's address for a hand-over. Only a mainnet token address (z...): a wallet that hands one out can hold the
+// NFT, while a plain q address may belong to a wallet that cannot see tokens and would spend the NFT away as fee money.
+export const holderLockOf = (address: string, publisherLock: Uint8Array) => {
+  const a = address.trim();
+  const r = cashAddressToLockingBytecode(a.includes(":") ? a : `bitcoincash:${a}`);
+  if (typeof r === "string" || r.prefix !== "bitcoincash") throw new Error("Not a Bitcoin Cash mainnet address");
+  if (!r.tokenSupport) throw new Error("Use the new maintainer's token address (it starts with z), so the NFT lands in a wallet that can hold it");
+  if (binToHex(r.bytecode) === binToHex(publisherLock)) throw new Error("That is this wallet's own address");
+  return r.bytecode;
 };
 
 // What a sent seal transaction leaves the publisher: the project NFT at output 0 and the change, if any. The next seal

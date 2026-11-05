@@ -167,19 +167,19 @@ export interface HeldProject {
 }
 
 // Projects the publisher holds. After a seal the NFT sits at output 0 of a transaction whose record names the last step (a
-// genesis record carries the project name). A project handed over by a plain wallet send has no record and may sit at any
-// output: it counts only if the project's own walk ends at this very coin, and it is listed by its name as "moved".
+// genesis record carries the project name). A project handed over, by a move record or by a plain wallet send at any output,
+// counts only if the project's own walk ends at this very coin, and it is listed by its name as "moved".
 export const heldProjects = async (
   rpc: Rpc,
   coins: { txid: string; vout: number; token?: { category: Uint8Array; nft?: { capability: string } } }[],
 ): Promise<HeldProject[]> => {
   const held = coins.filter((c) => c.token?.nft?.capability === "mutable");
   const found = await Promise.all(
-    held.map(async (c) => {
+    held.map(async (c): Promise<HeldProject | undefined> => {
       const category = binToHex(c.token!.category);
       const tx = await getTx(rpc, c.txid);
       const record = tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
-      if (record && c.vout === 0) return { category, kind: record.kind, version: record.version, txid: c.txid };
+      if (record && record.kind !== "move" && c.vout === 0) return { category, kind: record.kind, version: record.version, txid: c.txid };
       const events = await walkProject(rpc, category).catch(() => []);
       const last = events.at(-1);
       if (events[0]?.kind !== "genesis" || last?.txid !== c.txid || last.vout !== c.vout) return undefined;

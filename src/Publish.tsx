@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { broadcast, heldProjects, walletCoins, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
 import { DropZone, short, Snippet } from "./ui";
 
 // The QR dialog takes no children, so pairing without a second device sits in a bar of its own above the dialog's backdrop.
@@ -36,6 +36,8 @@ export default function Publish() {
   const [name, setName] = useState("");
   const [version, setVersion] = useState("");
   const [url, setUrl] = useState("");
+  const [heir, setHeir] = useState("");
+  const [reason, setReason] = useState("");
   const [status, setStatus] = useState("");
   const [sent, setSent] = useState("");
   const [stale, setStale] = useState(false);
@@ -134,7 +136,7 @@ export default function Publish() {
   const manifest: Manifest = { protocol: 1, project, version, files };
   const dupes = findDuplicates(files);
 
-  const send = async (kind: "genesis" | "release" | "revoke") => {
+  const send = async (kind: "genesis" | "release" | "revoke" | "move") => {
     if (!wc.manager || !lock || busy) return;
     setBusy(true);
     setStatus("Building the transaction...");
@@ -143,8 +145,10 @@ export default function Publish() {
       const coins = await coinsNow();
       const mine = coins.filter((c) => c.token?.nft?.capability === "mutable");
       const nft = project ? mine.find((c) => binToHex(c.token!.category) === project) : undefined;
-      const commitment = kind === "genesis" ? merkleRoot([]) : merkleRoot(files);
-      const record = { kind, version: kind === "genesis" ? name : version, manifestUrl: url };
+      // A hand-over keeps the last release's root on the NFT; it only changes who holds it.
+      const holderLock = kind === "move" ? holderLockOf(heir, lock) : undefined;
+      const commitment = kind === "genesis" ? merkleRoot([]) : kind === "move" ? (nft?.token?.nft?.commitment ?? merkleRoot([])) : merkleRoot(files);
+      const record = { kind, version: kind === "genesis" ? name : kind === "move" ? reason.trim() : version, manifestUrl: kind === "move" ? "" : url };
       let funding: Utxo[] = coins.filter((c) => !c.token);
       if (kind === "genesis" && !funding.some((c) => c.vout === 0)) {
         const p = buildPrepTx({ publisherLock: lock, funding });
@@ -161,14 +165,30 @@ export default function Publish() {
         publisherLock: lock,
         funding,
         nft: kind === "genesis" ? undefined : nft,
+        holderLock,
       });
-      setStatus(`Confirm in your wallet. Fee ${u.fee} sats.`);
-      const res = await wc.manager.signTransaction(wizardRequest(u, `Release Seal: ${kind} ${kind === "genesis" ? "" : version}`));
+      setStatus(
+        kind === "move"
+          ? `Confirm in your wallet. After this only the new address can seal or revoke versions of this project. Fee ${u.fee} sats.`
+          : `Confirm in your wallet. Fee ${u.fee} sats.`,
+      );
+      const res = await wc.manager.signTransaction(
+        wizardRequest(u, kind === "move" ? `Release Seal: hand the project over to ${heir.trim()}` : `Release Seal: ${kind} ${kind === "genesis" ? "" : version}`),
+      );
       setStatus("Signed. Sending to the network...");
       const txid = await broadcast(await rpc(), res.signedTransaction);
       setSent(txid);
       if (kind === "genesis") setProject(binToHex(u.category));
-      setStatus(kind === "genesis" ? `Project created. Its id is ${binToHex(u.category)}` : kind === "revoke" ? `Version ${version} revoked.` : `Version ${version} sealed.`);
+      if (kind === "move") setHeir("");
+      setStatus(
+        kind === "genesis"
+          ? `Project created. Its id is ${binToHex(u.category)}`
+          : kind === "move"
+            ? "Handed over. The project page now names the new holder, and their wallet lists the project on this tab."
+            : kind === "revoke"
+              ? `Version ${version} revoked.`
+              : `Version ${version} sealed.`,
+      );
     } catch (e) {
       setStatus(String((e as Error).message ?? e));
     } finally {
@@ -344,6 +364,15 @@ export default function Publish() {
               Revoke this version
             </button>
           </div>
+          {project && (
+            <div className="row">
+              <input value={heir} onChange={(e) => setHeir(e.target.value)} placeholder="New maintainer's token address (z...)" spellCheck={false} />
+              <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason, e.g. key rotation (optional)" maxLength={60} />
+              <button disabled={busy || !heir.trim()} onClick={() => send("move")}>
+                Hand over
+              </button>
+            </div>
+          )}
           {status && <p className="muted">{status}</p>}
           {sent && (
             <p className="muted">

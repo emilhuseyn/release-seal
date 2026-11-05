@@ -206,6 +206,46 @@ describe("walkProject after a hand-over", () => {
     ]);
   });
 
+  it("reads a hand-over record as the step to the new maintainer, with its reason, and lists the project for them", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("c4".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 950000);
+    const r = (n: number) => merkleRoot([entryFor(`lib-${n}.tgz`, new Uint8Array([n]))]);
+    const g = step({ kind: "genesis", version: "lib", manifestUrl: "https://x.org" }, r(0), [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 950001);
+    const r1 = step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, r(1), [g.change], g.nft, 950002);
+    const m = buildSealTx({
+      record: { kind: "move", version: "key rotation", manifestUrl: "" },
+      commitment: r(1),
+      publisherLock: lock,
+      funding: [r1.change],
+      nft: r1.nft,
+      holderLock: lock2,
+    });
+    const moved = put(sign(m.transaction, m.sourceOutputs), 950003, [hist, hist2]);
+    const nft2 = { txid: moved, vout: 0, satoshis: NFT_SATS, token: m.transaction.outputs[0].token } as Utxo;
+
+    const before = await walkProject(rpc, category);
+    expect(before.map((e) => e.kind)).toEqual(["genesis", "release", "move"]);
+    expect(before[2]).toMatchObject({ txid: moved, vout: 0, version: "key rotation", publisher: addr(lock2), commitment: binToHex(r(1)) });
+    expect(await heldProjects(rpc, [nft2])).toEqual([{ category, kind: "moved", version: "lib", txid: moved }]);
+
+    const v2 = buildSealTx({
+      record: { kind: "release", version: "v2", manifestUrl: "https://x.org/v2" },
+      commitment: r(2),
+      publisherLock: lock2,
+      funding: [{ txid: "c5".repeat(32), vout: 1, satoshis: 9000n, lock: lock2 }],
+      nft: { ...nft2, lock: lock2 },
+    });
+    const v2id = put(sign(v2.transaction, v2.sourceOutputs, key2), 950004, [hist2]);
+    const after = await walkProject(rpc, category);
+    expect(after.map((e) => e.kind)).toEqual(["genesis", "release", "move", "release"]);
+    expect(after[3]).toMatchObject({ txid: v2id, version: "v2", publisher: addr(lock2), commitment: binToHex(r(2)) });
+  });
+
   it("reads an NFT that never carried a seal record as no project, however it moved", async () => {
     const parent: Transaction = {
       version: 2,
