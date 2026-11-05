@@ -87,7 +87,10 @@ export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): P
     const vout = next.tx.outputs.findIndex((o) => o.token?.nft && binToHex(o.token.category) === category);
     if (vout < 0) break;
     const out = next.tx.outputs[vout];
-    const record = next.tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean) ?? { kind: "moved" as const, version: "", manifestUrl: "" };
+    const found = next.tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
+    // Any CashTokens NFT moves without records; only one that started with a seal record is a project.
+    if (!found && !events.length) break;
+    const record = found ?? { kind: "moved" as const, version: "", manifestUrl: "" };
     if (record.kind === "revoke") {
       const target = [...events].reverse().find((e) => e.kind === "release" && e.version === record.version);
       if (target) target.revoked = true;

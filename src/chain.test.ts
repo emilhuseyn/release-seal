@@ -206,6 +206,27 @@ describe("walkProject after a hand-over", () => {
     ]);
   });
 
+  it("reads an NFT that never carried a seal record as no project, however it moved", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("c3".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 940000);
+    const token = { amount: 0n, category: hexToBin(category), nft: { capability: "mutable" as const, commitment: new Uint8Array(32) } };
+    const mint: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin(category), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: NFT_SATS, token }, { lockingBytecode: lock, valueSatoshis: 48000n }],
+    };
+    const m = put(sign(mint, [{ lockingBytecode: lock, valueSatoshis: 50000n }]), 940001);
+    handOver({ txid: m, vout: 0, satoshis: NFT_SATS, token }, { txid: m, vout: 1, satoshis: 48000n }, 940002);
+
+    expect(await walkProject(rpc, category)).toEqual([]);
+  });
+
   it("lists a project received by a wallet send under its name, and only the coin the walk ends at", async () => {
     const parent: Transaction = {
       version: 2,
