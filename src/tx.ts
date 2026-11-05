@@ -41,12 +41,21 @@ export interface UnsignedSealTx {
 
 export const NFT_SATS = 1000n;
 export const DUST = 546n;
+// A seal spends only the coins it needs, largest first, until at least KEEP comes back as change (enough for the next seals).
+// A judge's everyday wallet holds many coins on many addresses; spending them all would sweep it into receive/0, ask for a
+// signature per coin and pay a fee far over the 2,300 sats the page states.
+export const KEEP = 5000n;
 // Worst case over both signature types the wallet may pick: ECDSA (push + 72-byte DER + sighash byte) and the pubkey push.
 // Schnorr needs 100, so 108 costs 8 sats per input and keeps an ECDSA-signing wallet above the 1 sat/byte relay floor.
 const P2PKH_UNLOCK_SIZE = 108;
 
 const sizeWith = (tx: Transaction, unlockSize: number) =>
   encodeTransaction({ ...tx, inputs: tx.inputs.map((i) => ({ ...i, unlockingBytecode: new Uint8Array(unlockSize) })) }).length;
+
+const largestFirst = (coins: Utxo[]) => [...coins].sort((a, b) => (a.satoshis === b.satoshis ? 0 : a.satoshis > b.satoshis ? -1 : 1));
+
+const inputsOf = (coins: Utxo[]) =>
+  coins.map((u) => ({ outpointTransactionHash: hexToBin(u.txid), outpointIndex: u.vout, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }));
 
 // WizardConnect (hdwalletv1) request. Cashonize, Paytaca and Selene pick each input's key from inputPaths, so every input names
 // the address its coin sits on (receive/0, where the publisher NFT lives, unless the coin says otherwise).
@@ -73,76 +82,65 @@ export const receiveKey = (m: { getPubkey(childIndex: number, index: bigint): Ui
   return p ? binToHex(p) : "";
 };
 
-// Exchange withdrawals rarely land at output 0, so genesis may first need this: every plain coin back to the publisher
-// as one output at index 0. Its txid becomes the project's category.
+// Exchange withdrawals rarely land at output 0, so genesis may first need this: plain coins, largest first, back to the
+// publisher as one output at index 0, enough for the NFT and KEEP. Its txid becomes the project's category.
 export const buildPrepTx = ({ publisherLock, funding, feeRate = 1n }: Pick<SealTxInput, "publisherLock" | "funding" | "feeRate">) => {
-  const coins = funding.filter((u) => !u.token);
-  const sourceOutputs: Output[] = coins.map((u) => ({ lockingBytecode: u.lock ?? publisherLock, valueSatoshis: u.satoshis }));
-  const tx: Transaction = {
-    version: 2,
-    locktime: 0,
-    inputs: coins.map((u) => ({
-      outpointTransactionHash: hexToBin(u.txid),
-      outpointIndex: u.vout,
-      sequenceNumber: 0xffffffff,
-      unlockingBytecode: new Uint8Array(),
-    })),
-    outputs: [{ lockingBytecode: publisherLock, valueSatoshis: 0n }],
+  const all = largestFirst(funding.filter((u) => !u.token));
+  const plan = (coins: Utxo[]) => {
+    const tx: Transaction = { version: 2, locktime: 0, inputs: inputsOf(coins), outputs: [{ lockingBytecode: publisherLock, valueSatoshis: 0n }] };
+    const fee = BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate;
+    return { coins, tx, fee, value: coins.reduce((s, u) => s + u.satoshis, 0n) - fee };
   };
-  const fee = BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate;
-  const value = coins.reduce((s, u) => s + u.satoshis, 0n) - fee;
-  if (value < NFT_SATS + DUST) throw new Error("Not enough BCH in the wallet to create a project");
-  tx.outputs[0].valueSatoshis = value;
-  return { transaction: tx, sourceOutputs, fee, value, paths: coins.map((u) => u.path ?? PUBLISHER) };
+  let p = plan(all.slice(0, 1));
+  for (let n = 2; p.value < NFT_SATS + KEEP && n <= all.length; n++) p = plan(all.slice(0, n));
+  if (p.value < NFT_SATS + DUST) throw new Error("Not enough BCH in the wallet to create a project");
+  p.tx.outputs[0].valueSatoshis = p.value;
+  const sourceOutputs: Output[] = p.coins.map((u) => ({ lockingBytecode: u.lock ?? publisherLock, valueSatoshis: u.satoshis }));
+  return { transaction: p.tx, sourceOutputs, fee: p.fee, value: p.value, paths: p.coins.map((u) => u.path ?? PUBLISHER) };
 };
 
 export const buildSealTx = ({ record, commitment, publisherLock, funding, nft, holderLock, feeRate = 1n }: SealTxInput): UnsignedSealTx => {
   if (commitment.length > 40) throw new Error("NFT commitment is limited to 40 bytes");
   if ((record.kind === "move") !== !!holderLock) throw new Error("A hand-over needs the next maintainer's address, and only a hand-over takes one");
-  const coins = funding.filter((u) => !u.token);
-  let ordered: Utxo[];
+  const coins = largestFirst(funding.filter((u) => !u.token));
+  let lead: Utxo;
   let category: Uint8Array;
   if (record.kind === "genesis") {
     const first = coins.find((u) => u.vout === 0);
     if (!first) throw new Error("Genesis needs a coin sitting at output 0. Send any small amount to yourself, then retry.");
-    ordered = [first, ...coins.filter((u) => u !== first)];
+    lead = first;
     category = hexToBin(first.txid);
   } else {
     if (!nft?.token?.nft || nft.token.nft.capability !== "mutable") throw new Error("Release, revoke and hand-over need the project's NFT in this wallet");
-    ordered = [nft, ...coins];
+    lead = nft;
     category = nft.token.category;
   }
+  const rest = coins.filter((u) => u !== lead);
 
-  const sourceOutputs: Output[] = ordered.map((u) => ({ lockingBytecode: u.lock ?? publisherLock, valueSatoshis: u.satoshis, token: u.token }));
-  const paths = ordered.map((u) => u.path ?? PUBLISHER);
-  const inputTotal = ordered.reduce((s, u) => s + u.satoshis, 0n);
   const outputs: Output[] = [
     { lockingBytecode: holderLock ?? publisherLock, valueSatoshis: NFT_SATS, token: { amount: 0n, category, nft: { capability: "mutable", commitment } } },
     { lockingBytecode: encodeRecord(record), valueSatoshis: 0n },
   ];
-  const tx: Transaction = {
-    version: 2,
-    locktime: 0,
-    inputs: ordered.map((u) => ({
-      outpointTransactionHash: hexToBin(u.txid),
-      outpointIndex: u.vout,
-      sequenceNumber: 0xffffffff,
-      unlockingBytecode: new Uint8Array(),
-    })),
-    outputs,
+  const plan = (ordered: Utxo[]) => {
+    const tx: Transaction = { version: 2, locktime: 0, inputs: inputsOf(ordered), outputs };
+    const changeOut = { lockingBytecode: publisherLock, valueSatoshis: 0n };
+    const withChange = { ...tx, outputs: [...outputs, changeOut] };
+    const feeWithChange = BigInt(sizeWith(withChange, P2PKH_UNLOCK_SIZE)) * feeRate;
+    const inputTotal = ordered.reduce((s, u) => s + u.satoshis, 0n);
+    return { ordered, tx, changeOut, withChange, feeWithChange, inputTotal, change: inputTotal - NFT_SATS - feeWithChange };
   };
+  let p = plan([lead]);
+  for (let n = 1; p.change < KEEP && n <= rest.length; n++) p = plan([lead, ...rest.slice(0, n)]);
 
-  const changeOut = { lockingBytecode: publisherLock, valueSatoshis: 0n };
-  const withChange = { ...tx, outputs: [...outputs, changeOut] };
-  const feeWithChange = BigInt(sizeWith(withChange, P2PKH_UNLOCK_SIZE)) * feeRate;
-  const change = inputTotal - NFT_SATS - feeWithChange;
-  if (change >= DUST) {
-    changeOut.valueSatoshis = change;
-    return { transaction: withChange, sourceOutputs, category, fee: feeWithChange, change, paths };
+  const sourceOutputs: Output[] = p.ordered.map((u) => ({ lockingBytecode: u.lock ?? publisherLock, valueSatoshis: u.satoshis, token: u.token }));
+  const paths = p.ordered.map((u) => u.path ?? PUBLISHER);
+  if (p.change >= DUST) {
+    p.changeOut.valueSatoshis = p.change;
+    return { transaction: p.withChange, sourceOutputs, category, fee: p.feeWithChange, change: p.change, paths };
   }
-  const fee = inputTotal - NFT_SATS;
-  if (fee < BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate) throw new Error("Not enough BCH in the wallet for the fee");
-  return { transaction: tx, sourceOutputs, category, fee, change: 0n, paths };
+  const fee = p.inputTotal - NFT_SATS;
+  if (fee < BigInt(sizeWith(p.tx, P2PKH_UNLOCK_SIZE)) * feeRate) throw new Error("Not enough BCH in the wallet for the fee");
+  return { transaction: p.tx, sourceOutputs, category, fee, change: 0n, paths };
 };
 
 // The next maintainer's address for a hand-over. Only a mainnet token address (z...): a wallet that hands one out can hold the

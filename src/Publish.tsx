@@ -153,7 +153,7 @@ export default function Publish() {
       if (kind === "genesis" && !funding.some((c) => c.vout === 0)) {
         const p = buildPrepTx({ publisherLock: lock, funding });
         buildSealTx({ record, commitment, publisherLock: lock, funding: [{ txid: "00".repeat(32), vout: 0, satoshis: p.value }] });
-        setStatus(`Step 1 of 2: a project starts from a coin at output 0 and yours are elsewhere. Confirm moving them to yourself, fee ${p.fee} sats.`);
+        setStatus(`Step 1 of 2: a project starts from a coin at output 0 and yours are elsewhere. Confirm a send to yourself, fee ${p.fee} sats.`);
         const pr = await wc.manager.signTransaction(wizardRequest(p, "Release Seal: move coins to output 0 before creating the project"));
         const prepTxid = await broadcast(await rpc(), pr.signedTransaction);
         funding = [{ txid: prepTxid, vout: 0, satoshis: p.value }];

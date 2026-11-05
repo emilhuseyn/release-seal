@@ -29,7 +29,7 @@ import { decodeKeyExchangeURI, encodeKeyExchangeURI, generateKeyExchangeCredenti
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, KEEP, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -60,13 +60,14 @@ describe("buildSealTx", () => {
       record: { kind: "genesis", version: "demo-project", manifestUrl: "https://example.org/seal" },
       commitment: root1,
       publisherLock: lock,
-      funding: [coin("aa".repeat(32), 1, 5000n), coin("bb".repeat(32), 0, 20000n)],
+      funding: [coin("aa".repeat(32), 1, 5000n), coin("bb".repeat(32), 0, 3000n)],
     });
     expect(binToHex(g.category)).toBe("bb".repeat(32));
+    expect(g.transaction.inputs.length).toBe(2);
     const gs = sign(g.transaction, g.sourceOutputs);
     expect(vm.verify({ sourceOutputs: g.sourceOutputs, transaction: gs })).toBe(true);
     const outSum = gs.outputs.reduce((s, o) => s + o.valueSatoshis, 0n);
-    expect(25000n - outSum).toBe(g.fee);
+    expect(8000n - outSum).toBe(g.fee);
     expect(g.fee).toBeGreaterThanOrEqual(BigInt(encodeTransaction(gs).length));
     expect(decodeRecord(gs.outputs[1].lockingBytecode)?.kind).toBe("genesis");
 
@@ -211,6 +212,36 @@ describe("buildSealTx", () => {
       nft: { txid: gTxid, vout: 0, satoshis: NFT_SATS, token: gs.outputs[0].token },
     });
     check(r);
+  });
+
+  it("an everyday wallet with many coins spends only the largest few it needs, not the whole wallet", () => {
+    const many = Array.from({ length: 40 }, (_, i) => coin(binToHex(new Uint8Array(32).fill(i + 1)), 1, 2000n + BigInt(i)));
+    const big = coin("f0".repeat(32), 3, 90000n);
+    const spent = (u: { transaction: Transaction }) => u.transaction.inputs.map((i) => `${binToHex(i.outpointTransactionHash)}:${i.outpointIndex}`);
+
+    const p = buildPrepTx({ publisherLock: lock, funding: [...many, big] });
+    expect(spent(p)).toEqual([`${big.txid}:3`]);
+    expect(vm.verify({ sourceOutputs: p.sourceOutputs, transaction: sign(p.transaction, p.sourceOutputs) })).toBe(true);
+    const small = buildPrepTx({ publisherLock: lock, funding: many });
+    expect(small.transaction.inputs.length).toBe(4);
+    expect(small.value).toBeGreaterThanOrEqual(NFT_SATS + KEEP);
+    expect(spent(small)).toEqual(many.slice(-4).reverse().map((c) => `${c.txid}:1`));
+
+    const g = buildSealTx({
+      record: { kind: "genesis", version: "p", manifestUrl: "https://x.org" },
+      commitment: root1,
+      publisherLock: lock,
+      funding: [...many, coin("0a".repeat(32), 0, 1200n), coin("0b".repeat(32), 0, 1500n), big],
+    });
+    expect(spent(g)).toEqual([`${"0b".repeat(32)}:0`, `${big.txid}:3`]);
+    expect(g.change).toBeGreaterThanOrEqual(KEEP);
+    expect(vm.verify({ sourceOutputs: g.sourceOutputs, transaction: sign(g.transaction, g.sourceOutputs) })).toBe(true);
+
+    const nft: Utxo = { txid: "c5".repeat(32), vout: 0, satoshis: NFT_SATS, token: { amount: 0n, category: hexToBin("d5".repeat(32)), nft: { capability: "mutable", commitment: root1 } } };
+    const r = buildSealTx({ record: { kind: "release", version: "v2", manifestUrl: "https://x.org" }, commitment: root2, publisherLock: lock, funding: many, nft });
+    expect(r.transaction.inputs.length).toBe(4);
+    expect(r.fee).toBeLessThan(1000n);
+    expect(vm.verify({ sourceOutputs: r.sourceOutputs, transaction: sign(r.transaction, r.sourceOutputs) })).toBe(true);
   });
 
   it("a prep coin too small for genesis is refused before anything is signed", () => {
@@ -361,6 +392,16 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
     const w = cashonize([coin("aa".repeat(32), 1, 3000n), coin("ab".repeat(32), 7, 2000n)]);
     const r = await firstSeal({ publisherLock: lock, funding: [coin("aa".repeat(32), 1, 3000n), coin("ab".repeat(32), 7, 2000n)], files, name: "p", link }, w.send);
     expect(w.steps.length).toBe(3);
+    expect(binToHex(w.utxos.get(`${r.release}:0`)!.token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
+  });
+
+  it("Seal it now from a wallet of 40 small coins signs a few of them and leaves the rest where they are", async () => {
+    const many = Array.from({ length: 40 }, (_, i) => coin(binToHex(new Uint8Array(32).fill(i + 1)), 1, 2000n + BigInt(i)));
+    const w = cashonize(many);
+    const sent: number[] = [];
+    const r = await firstSeal({ publisherLock: lock, funding: many, files, name: "p", link }, async (u, step) => (sent.push(u.transaction.inputs.length), w.send(u, step)));
+    expect(sent).toEqual([4, 1, 2]);
+    expect(many.filter((c) => w.utxos.has(`${c.txid}:${c.vout}`)).length).toBe(36);
     expect(binToHex(w.utxos.get(`${r.release}:0`)!.token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
   });
 
