@@ -116,7 +116,7 @@ describe("without a fetched file list", () => {
     const good = JSON.stringify({ protocol: 1, files });
     const swapped = JSON.stringify({ protocol: 1, files: files.map((f, i) => (i ? f : entryFor(f.name, utf8ToBin("evil")))) });
     const ev = (kind: SealEvent["kind"], txid: string, url: string): SealEvent =>
-      ({ kind, txid, commitment: hex, version: "v1", manifestUrl: url, height: 1, publisher: "q" });
+      ({ kind, txid, vout: 0, commitment: hex, version: "v1", manifestUrl: url, height: 1, publisher: "q" });
     const asked: string[] = [];
     const aborted: string[] = [];
     const get = (url: string, signal: AbortSignal) => {
@@ -153,7 +153,7 @@ describe("without a fetched file list", () => {
 describe("verdicts", () => {
   const root = binToHex(merkleRoot(files));
   const ev = (kind: SealEvent["kind"], txid: string, commitment: string): SealEvent =>
-    ({ kind, txid, commitment, version: kind === "genesis" ? "demo" : "v1", manifestUrl: "https://x/seal.json", height: 1, publisher: "q" });
+    ({ kind, txid, vout: 0, commitment, version: kind === "genesis" ? "demo" : "v1", manifestUrl: "https://x/seal.json", height: 1, publisher: "q" });
   const events = [ev("genesis", "g", "00".repeat(32)), ev("release", "r1", root)];
   const honest = { protocol: 1, project: "", version: "v1", files };
   const evil = entryFor("a.tar.gz", utf8ToBin("evil"));

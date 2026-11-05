@@ -1,7 +1,7 @@
 // Reads a project's seal history from a Fulcrum (Electrum protocol) server.
 // The category is the txid whose output 0 the genesis spent. Fulcrum has no spender index, so the walk reads the history of the
-// address holding the NFT and follows each spend of output 0; when output 0 moves to a new address (maintainer rotation),
-// the walk continues on that address.
+// address holding the NFT and follows each spend of it; when it moves to a new address (maintainer rotation), the walk
+// continues on that address.
 import {
   binToHex,
   decodeTransaction,
@@ -17,8 +17,11 @@ export interface Rpc {
   request(method: string, ...params: (string | number | boolean)[]): Promise<unknown>;
 }
 
-export interface SealEvent extends SealRecord {
+// "moved": the holder sent the NFT on without a seal record (a plain wallet send to a new maintainer).
+export interface SealEvent extends Omit<SealRecord, "kind"> {
+  kind: SealRecord["kind"] | "moved";
   txid: string;
+  vout: number;
   height: number;
   commitment: string;
   publisher: string;
@@ -80,19 +83,19 @@ export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): P
       if (k >= 0) next = { txid: chunk[k].tx_hash, height: Math.max(0, chunk[k].height), rawHeight: chunk[k].height, tx: txs[k] };
     }
     if (!next) break;
-    const out0 = next.tx.outputs[0];
-    const nft = out0?.token?.nft;
-    if (!out0 || !nft || binToHex(out0.token!.category) !== category) break;
-    const record = next.tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
-    if (!record) break;
+    // Our seal transactions keep the NFT at output 0; a wallet's own token send may put it anywhere. No NFT left: burned.
+    const vout = next.tx.outputs.findIndex((o) => o.token?.nft && binToHex(o.token.category) === category);
+    if (vout < 0) break;
+    const out = next.tx.outputs[vout];
+    const record = next.tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean) ?? { kind: "moved" as const, version: "", manifestUrl: "" };
     if (record.kind === "revoke") {
       const target = [...events].reverse().find((e) => e.kind === "release" && e.version === record.version);
       if (target) target.revoked = true;
     }
-    const publisher = addressOf(out0.lockingBytecode);
-    events.push({ ...record, txid: next.txid, height: next.height, commitment: binToHex(nft.commitment), publisher });
+    const publisher = addressOf(out.lockingBytecode);
+    events.push({ ...record, txid: next.txid, vout, height: next.height, commitment: binToHex(out.token!.nft!.commitment), publisher });
     address = publisher;
-    current = { txid: next.txid, vout: 0 };
+    current = { txid: next.txid, vout };
     currentHeight = next.rawHeight;
   }
   return events;
@@ -155,23 +158,29 @@ export const walletCoins = async (
 
 export interface HeldProject {
   category: string;
-  kind: SealRecord["kind"];
+  kind: SealEvent["kind"];
   version: string;
   txid: string;
 }
 
-// Projects the publisher holds: a project's NFT always sits at output 0 of its latest seal transaction, whose record names the
-// last step (a genesis record carries the project name). A mutable NFT anywhere else, or without a record, is not a project.
+// Projects the publisher holds. After a seal the NFT sits at output 0 of a transaction whose record names the last step (a
+// genesis record carries the project name). A project handed over by a plain wallet send has no record and may sit at any
+// output: it counts only if the project's own walk ends at this very coin, and it is listed by its name as "moved".
 export const heldProjects = async (
   rpc: Rpc,
   coins: { txid: string; vout: number; token?: { category: Uint8Array; nft?: { capability: string } } }[],
 ): Promise<HeldProject[]> => {
-  const held = coins.filter((c) => c.vout === 0 && c.token?.nft?.capability === "mutable");
+  const held = coins.filter((c) => c.token?.nft?.capability === "mutable");
   const found = await Promise.all(
     held.map(async (c) => {
+      const category = binToHex(c.token!.category);
       const tx = await getTx(rpc, c.txid);
       const record = tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
-      return record && { category: binToHex(c.token!.category), kind: record.kind, version: record.version, txid: c.txid };
+      if (record && c.vout === 0) return { category, kind: record.kind, version: record.version, txid: c.txid };
+      const events = await walkProject(rpc, category).catch(() => []);
+      const last = events.at(-1);
+      if (events[0]?.kind !== "genesis" || last?.txid !== c.txid || last.vout !== c.vout) return undefined;
+      return { category, kind: "moved" as const, version: events[0].version, txid: c.txid };
     }),
   );
   return found.filter((p): p is HeldProject => !!p);

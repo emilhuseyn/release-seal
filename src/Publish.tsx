@@ -289,7 +289,8 @@ export default function Publish() {
                     <span className="muted">Projects this wallet holds:</span>
                     {wallet.projects.map((p) => (
                       <button key={p.category} className={p.category === project ? "on" : ""} onClick={() => setProject(p.category)}>
-                        {p.kind === "genesis" ? p.version : `${p.kind === "revoke" ? "revoked" : "sealed"} ${p.version}`} {short(p.category, 4)}
+                        {p.kind === "genesis" ? p.version : p.kind === "moved" ? `${p.version} (received)` : `${p.kind === "revoke" ? "revoked" : "sealed"} ${p.version}`}{" "}
+                        {short(p.category, 4)}
                       </button>
                     ))}
                   </div>

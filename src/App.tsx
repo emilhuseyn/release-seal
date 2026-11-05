@@ -123,7 +123,8 @@ function Verify() {
             <ol className="timeline">
               {events.map((e) => (
                 <li key={e.txid} className={e.revoked ? "revoked" : ""}>
-                  <b>{e.kind === "genesis" ? "created" : e.kind}</b> {e.kind !== "genesis" && e.version}
+                  <b>{e.kind === "genesis" ? "created" : e.kind}</b>{" "}
+                  {e.kind === "moved" ? `to ${short(e.publisher.replace("bitcoincash:", ""), 6)}` : e.kind !== "genesis" && e.version}
                   {e.revoked && <span className="tag bad">revoked</span>}
                   <a href={`https://blockchair.com/bitcoin-cash/transaction/${e.txid}`} target="_blank" rel="noreferrer">
                     {e.height ? `block ${e.height}` : "unconfirmed"}

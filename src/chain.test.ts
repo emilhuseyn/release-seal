@@ -23,12 +23,15 @@ const lock = publicKeyToP2pkhLockingBytecode({ publicKey: pub });
 const addr = (lockingBytecode: Uint8Array) =>
   (lockingBytecodeToCashAddress({ bytecode: lockingBytecode, prefix: "bitcoincash", tokenSupport: true }) as { address: string }).address;
 const compiler = walletTemplateToCompilerBCH(walletTemplateP2pkhNonHd);
+// A second maintainer, for hand-overs.
+const key2 = hexToBin("33".repeat(32));
+const lock2 = publicKeyToP2pkhLockingBytecode({ publicKey: secp256k1.derivePublicKeyCompressed(key2) as Uint8Array });
 
-const sign = (transaction: Transaction, sourceOutputs: Output[]) => {
+const sign = (transaction: Transaction, sourceOutputs: Output[], k = key) => {
   const signed = { ...transaction, inputs: transaction.inputs.map((i) => ({ ...i })) };
   signed.inputs.forEach((input, inputIndex) => {
     const r = compiler.generateBytecode({
-      data: { keys: { privateKeys: { key } }, compilationContext: { inputIndex, sourceOutputs, transaction: signed } },
+      data: { keys: { privateKeys: { key: k } }, compilationContext: { inputIndex, sourceOutputs, transaction: signed } },
       scriptId: "unlock",
     });
     if (!r.success) throw new Error(JSON.stringify(r.errors));
@@ -39,17 +42,18 @@ const sign = (transaction: Transaction, sourceOutputs: Output[]) => {
 
 const store = new Map<string, string>();
 const hist: { tx_hash: string; height: number }[] = [];
-const put = (tx: Transaction, height: number) => {
+const hist2: { tx_hash: string; height: number }[] = [];
+const put = (tx: Transaction, height: number, into = [hist]) => {
   const raw = encodeTransaction(tx);
   const txid = binToHex(hashTransactionUiOrder(raw));
   store.set(txid, binToHex(raw));
-  hist.push({ tx_hash: txid, height });
+  for (const h of into) h.push({ tx_hash: txid, height });
   return txid;
 };
 const rpc: Rpc = {
   request: async (method, ...params) => {
     if (method === "blockchain.transaction.get") return store.get(params[0] as string);
-    if (method === "blockchain.address.get_history") return params[0] === addr(lock) ? hist : [];
+    if (method === "blockchain.address.get_history") return params[0] === addr(lock) ? hist : params[0] === addr(lock2) ? hist2 : [];
     throw new Error(method);
   },
 };
@@ -151,6 +155,73 @@ describe("walkProject", () => {
     expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
     expect(read.filter((t) => old.some((o) => o.tx_hash === t))).toEqual([]);
     expect(most).toBeGreaterThan(1);
+  });
+});
+
+// A plain wallet send of the project NFT to the next maintainer (no seal record), with the NFT at output 1 behind a BCH
+// output, as a wallet may lay it out; signed by the old holder.
+const handOver = (nft: Utxo, funding: Utxo, height: number) => {
+  const sourceOutputs: Output[] = [
+    { lockingBytecode: lock, valueSatoshis: nft.satoshis, token: nft.token },
+    { lockingBytecode: lock, valueSatoshis: funding.satoshis },
+  ];
+  const tx: Transaction = {
+    version: 2,
+    locktime: 0,
+    inputs: [nft, funding].map((u) => ({ outpointTransactionHash: hexToBin(u.txid), outpointIndex: u.vout, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() })),
+    outputs: [
+      { lockingBytecode: lock2, valueSatoshis: 3000n },
+      { lockingBytecode: lock2, valueSatoshis: nft.satoshis, token: nft.token },
+    ],
+  };
+  const txid = put(sign(tx, sourceOutputs), height, [hist, hist2]);
+  return { txid, funding: { txid, vout: 0, satoshis: 3000n } as Utxo, nft: { txid, vout: 1, satoshis: nft.satoshis, token: nft.token } as Utxo };
+};
+
+describe("walkProject after a hand-over", () => {
+  it("follows the NFT through a record-less wallet send to the new maintainer's seals", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("c1".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 920000);
+    const r = (n: number) => merkleRoot([entryFor(`tool-${n}.tgz`, new Uint8Array([n]))]);
+    const g = step({ kind: "genesis", version: "tool", manifestUrl: "https://x.org" }, r(0), [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 920001);
+    const r1 = step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, r(1), [g.change], g.nft, 920002);
+    const h = handOver(r1.nft, r1.change, 920003);
+    const u = buildSealTx({ record: { kind: "release", version: "v2", manifestUrl: "https://x.org/v2" }, commitment: r(2), publisherLock: lock2, funding: [h.funding], nft: h.nft });
+    const v2 = put(sign(u.transaction, u.sourceOutputs, key2), 920004, [hist2]);
+
+    const events = await walkProject(rpc, category);
+    expect(events.map((e) => e.kind)).toEqual(["genesis", "release", "moved", "release"]);
+    expect(events[2]).toMatchObject({ txid: h.txid, vout: 1, publisher: addr(lock2), commitment: binToHex(r(1)), height: 920003 });
+    expect(events[3]).toMatchObject({ txid: v2, vout: 0, version: "v2", publisher: addr(lock2), commitment: binToHex(r(2)) });
+    expect(events[1].publisher).toBe(addr(lock));
+
+    expect(await heldProjects(rpc, [h.nft])).toEqual([]);
+    expect(await heldProjects(rpc, [{ txid: v2, vout: 0, token: u.transaction.outputs[0].token }])).toEqual([
+      { category, kind: "release", version: "v2", txid: v2 },
+    ]);
+  });
+
+  it("lists a project received by a wallet send under its name, and only the coin the walk ends at", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("c2".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 930000);
+    const root = merkleRoot([entryFor("given.tgz", new Uint8Array([3]))]);
+    const g = step({ kind: "genesis", version: "given", manifestUrl: "https://x.org" }, root, [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 930001);
+    const h = handOver(g.nft, g.change, 930002);
+    const stray = { category: hexToBin(category), amount: 0n, nft: { capability: "mutable" as const, commitment: root } };
+
+    expect(await heldProjects(rpc, [h.nft, { txid: h.txid, vout: 0, token: stray }])).toEqual([
+      { category, kind: "moved", version: "given", txid: h.txid },
+    ]);
   });
 });
 

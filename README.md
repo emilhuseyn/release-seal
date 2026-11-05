@@ -21,7 +21,9 @@ holder of the project's token can make.
 - Checking needs no wallet. The page reads the chain from public Fulcrum servers, follows the NFT from release to release, hashes
   the dropped files in the browser and compares them with the sealed list. Nothing is uploaded.
 
-Sending the NFT to another address hands the project over. A revoke record marks a bad release, and the page then shows it in red.
+Sending the NFT to another address hands the project over. A plain token send from any wallet does it; the timeline then shows
+"moved to" the new address, and from there on only the new holder can seal. A revoke record marks a bad release, and the page
+then shows it in red.
 
 The check does not depend on the website either. If `seal.json` is gone, cannot be fetched or was swapped, drop a copy from anywhere (a mirror,
 a release asset) with the files: it counts only if its root is the one sealed on chain. With no list at all, dropping every file
