@@ -3,6 +3,8 @@
 Check that the file you downloaded is the file the maintainer shipped. The proof lives on Bitcoin Cash, not on the download page.
 
 Live demo: https://emilhuseyn.github.io/release-seal/
+Demo project on mainnet: https://emilhuseyn.github.io/release-seal/?project=0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42
+(download the sealed zip and the tampered copy from the line under the project, then drop each one).
 Built for BCH BLAZE 2026, Mainnet track.
 
 ## Why
@@ -84,7 +86,12 @@ Badge: an open project's page has a "Badge for your download page" box with HTML
 ## Status
 
 Transactions are built in the browser with libauth. Tests sign them with throwaway keys on dummy coins and run them through
-libauth's Bitcoin Cash virtual machine, token rules included. A first mainnet project will be linked here once it is sealed.
+libauth's Bitcoin Cash virtual machine, token rules included.
+
+On mainnet, the demo project hello-seal was created and its v1.0.0 sealed from a Cashonize wallet on 6 November 2026, both in
+block 976212: [creation](https://blockchair.com/bitcoin-cash/transaction/6305ffc7724d8e0258a6ad11ee3f8df6e2777b30c6f787320067c2a690e5d38a),
+[v1.0.0 seal](https://blockchair.com/bitcoin-cash/transaction/76c084ab811befbe86fe89748ec477a00383addfb91ed94bcf88e4232244a7a2).
+Its files are in `public/demo/v1.0.0`, and `public/demo/tampered` holds a copy with one line added.
 
 ## Development
 
