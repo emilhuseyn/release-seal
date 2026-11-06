@@ -49,6 +49,7 @@
   .panel p { margin: 0; }
   .panel p + p { margin-top: 10px; }
   .muted { color: var(--muted); }
+  .panel .text a { color: var(--accent); }
   .files { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 20px; }
   .file {
     font: inherit; color: var(--fg); text-align: left; cursor: pointer;
@@ -260,7 +261,7 @@
       <span class="stamp" id="stamp"></span>
       <p id="detail" class="muted">Choose a file above.</p>
     </div>
-    <div class="text muted" style="padding-top:0; font-size:0.85rem">Demo files, so the seal here is computed on the page. The real checker reads the seal from Bitcoin Cash.</div>
+    <div class="text muted" style="padding-top:0; font-size:0.85rem">Demo files, so the seal here is computed on the page. The real checker reads the seal from Bitcoin Cash: open the <a href="../?project=0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42">hello-seal demo project</a>, sealed on mainnet in block 976212 for a 532-sat fee, and drop its zip or the tampered copy.</div>
   </section>
 
   <!-- 6 -->
