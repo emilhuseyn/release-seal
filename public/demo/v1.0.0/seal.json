@@ -1,0 +1,17 @@
+{
+  "protocol": 1,
+  "project": "0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42",
+  "version": "v1.0.0",
+  "files": [
+    {
+      "name": "hello-seal-1.0.0.zip",
+      "size": 192,
+      "sha256": "e20a3b4dccc97a6e3894d775c35c6be5ee618696f65ac54e53c91dcdd01eb400"
+    },
+    {
+      "name": "README.txt",
+      "size": 244,
+      "sha256": "65dcf02833ee27f3046d2900a31f2d2bd292e03d1c3883969fdfbe7104d57072"
+    }
+  ]
+}

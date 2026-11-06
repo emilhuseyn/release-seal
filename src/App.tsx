@@ -15,7 +15,7 @@ const BANNER = {
 };
 
 // Token category of the demo project that seals public/demo/v1.0.0 on mainnet. Empty until that seal exists; the links stay hidden.
-const DEMO_PROJECT = "";
+const DEMO_PROJECT = "0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42";
 
 
 function Verify() {
