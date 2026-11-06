@@ -17,6 +17,16 @@ const BANNER = {
 // Token category of the demo project that seals public/demo/v1.0.0 on mainnet. Empty until that seal exists; the links stay hidden.
 const DEMO_PROJECT = "0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42";
 
+// The home page line that offers the demo zips hides once a project is open, so the demo project links them again.
+export function DemoFiles({ project }: { project: string }) {
+  if (!DEMO_PROJECT || project !== DEMO_PROJECT) return null;
+  return (
+    <p className="muted">
+      Demo files: the <a href="./demo/v1.0.0/hello-seal-1.0.0.zip">sealed zip</a> and a{" "}
+      <a href="./demo/tampered/hello-seal-1.0.0.zip">tampered copy</a> with the same name. Download either and drop it below.
+    </p>
+  );
+}
 
 function Verify() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("project") ?? "");
@@ -148,6 +158,7 @@ function Verify() {
               </details>
             )}
           </div>
+          <DemoFiles project={opened} />
           <DropZone onFiles={verify} label="Drop downloaded files here to check them" />
         </>
       )}
