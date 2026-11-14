@@ -29,7 +29,7 @@ import { decodeKeyExchangeURI, encodeKeyExchangeURI, generateKeyExchangeCredenti
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { describe, expect, it } from "vitest";
 import { decodeRecord, entryFor, merkleRoot } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, KEEP, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
+import { buildPrepTx, buildSealTx, buildTipTx, firstSeal, TIP_MIN, FIRST_VERSION, holderLockOf, KEEP, NFT_SATS, pairLinks, receiveKey, wizardRequest, type Send, type Utxo, type WalletPath } from "./tx";
 
 const key = hexToBin("11".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -446,6 +446,49 @@ describe("signed the way Cashonize signs a WizardConnect request", () => {
       expect(binToHex(nft.lockingBytecode)).toBe(binToHex(publisherLock));
       expect(binToHex(nft.token!.nft!.commitment)).toBe(binToHex(merkleRoot(files)));
     }
+  });
+  it("a tip pays the holder at output 0, carries a tip record and is signed the Cashonize way from an HD wallet", async () => {
+    const seed = deriveHdPrivateNodeFromSeed(hexToBin("44".repeat(32)));
+    const chains: Record<string, HdPrivateNodeValid> = { receive: deriveHdPath(seed, "m/44'/145'/0'/0"), change: deriveHdPath(seed, "m/44'/145'/0'/1") };
+    const keyAt = (name: string, index: number) => {
+      const node = deriveHdPathRelative(chains[name], String(index)) as { privateKey: Uint8Array };
+      return { key: node.privateKey, pub: secp256k1.derivePublicKeyCompressed(node.privateKey) as Uint8Array };
+    };
+    const at = (path: WalletPath, txid: string, satoshis: bigint): Utxo => ({ txid, vout: 1, satoshis, lock: publicKeyToP2pkhLockingBytecode({ publicKey: keyAt(...path).pub }), path });
+    const tipperLock = publicKeyToP2pkhLockingBytecode({ publicKey: keyAt("receive", 0).pub });
+    const category = "0b".repeat(32);
+    const funding = [at(["change", 3], "d1".repeat(32), 1500n), at(["receive", 2], "d2".repeat(32), 4000n), at(["receive", 7], "d3".repeat(32), 900n)];
+    const u = buildTipTx({ category, version: "v1.0.0", holderLock: lock, tipperLock, funding, amount: 2000n });
+    expect(u.transaction.inputs.length).toBe(1);
+    expect(u.paths).toEqual([["receive", 2]]);
+    const w = cashonize(funding, keyAt);
+    const txid = await w.send(u, "tip");
+    const out0 = w.utxos.get(`${txid}:0`)!;
+    expect(binToHex(out0.lockingBytecode)).toBe(binToHex(lock));
+    expect(out0.valueSatoshis).toBe(2000n);
+    expect(out0.token).toBeUndefined();
+    expect(decodeRecord(w.utxos.get(`${txid}:1`)!.lockingBytecode)).toEqual({ kind: "tip", version: "v1.0.0", manifestUrl: category });
+    expect(binToHex(w.utxos.get(`${txid}:2`)!.lockingBytecode)).toBe(binToHex(tipperLock));
+    expect(4000n - 2000n - w.utxos.get(`${txid}:2`)!.valueSatoshis).toBe(u.fee);
+  });
+
+  it("a tip leaves tokens alone, adds coins until it is paid, drops dust change, and refuses what it cannot do", () => {
+    const nftCoin: Utxo = { txid: "e0".repeat(32), vout: 0, satoshis: 50_000n, token: { amount: 0n, category: hexToBin("0b".repeat(32)), nft: { capability: "mutable", commitment: root1 } } };
+    const other = publicKeyToP2pkhLockingBytecode({ publicKey: secp256k1.derivePublicKeyCompressed(hexToBin("22".repeat(32))) as Uint8Array });
+    const base = { category: "0b".repeat(32), version: "v1", holderLock: other, tipperLock: lock };
+    const two = buildTipTx({ ...base, funding: [nftCoin, coin("e1".repeat(32), 1, 1200n), coin("e2".repeat(32), 1, 1100n)], amount: 1500n });
+    expect(two.transaction.inputs.map((i) => binToHex(i.outpointTransactionHash))).toEqual(["e1".repeat(32), "e2".repeat(32)]);
+    const dust = buildTipTx({ ...base, funding: [coin("e3".repeat(32), 1, 1500n)], amount: 1200n });
+    expect(dust.transaction.outputs.length).toBe(2);
+    expect(dust.fee).toBe(300n);
+    const signed = sign(dust.transaction, dust.sourceOutputs);
+    expect(vm.verify({ sourceOutputs: dust.sourceOutputs, transaction: signed })).toBe(true);
+    expect(dust.fee).toBeGreaterThanOrEqual(BigInt(encodeTransaction(signed).length));
+    expect(() => buildTipTx({ ...base, funding: [coin("e4".repeat(32), 1, 1100n)], amount: 1000n })).toThrow(/Not enough BCH/);
+    expect(() => buildTipTx({ ...base, funding: [nftCoin], amount: 1000n })).toThrow(/Not enough BCH/);
+    expect(() => buildTipTx({ ...base, funding: [coin("e5".repeat(32), 1, 9000n)], amount: TIP_MIN - 1n })).toThrow(/smallest tip/);
+    expect(() => buildTipTx({ ...base, holderLock: lock, funding: [coin("e5".repeat(32), 1, 9000n)], amount: 1000n })).toThrow(/yourself/);
+    expect(() => buildTipTx({ ...base, category: "x", funding: [coin("e5".repeat(32), 1, 9000n)], amount: 1000n })).toThrow(/project id/);
   });
 });
 

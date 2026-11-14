@@ -13,9 +13,9 @@ import {
   type Transaction,
 } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
-import { broadcast, heldProjects, walkProject, walletCoins, type Rpc } from "./chain";
+import { broadcast, heldProjects, projectTips, walkProject, walletCoins, type Rpc } from "./chain";
 import { entryFor, merkleRoot, type SealRecord } from "./seal";
-import { buildSealTx, NFT_SATS, type Utxo } from "./tx";
+import { buildSealTx, buildTipTx, NFT_SATS, type Utxo } from "./tx";
 
 const key = hexToBin("22".repeat(32));
 const pub = secp256k1.derivePublicKeyCompressed(key) as Uint8Array;
@@ -405,5 +405,39 @@ describe("broadcast", () => {
   });
   it("rejects an answer that is not the txid", async () => {
     await expect(broadcast(answering(() => "00".repeat(32)), raw)).rejects.toThrow("instead of txid");
+  });
+});
+
+describe("projectTips", () => {
+  it("counts tips naming this project paid to its holder, and the walk still reads only the seals", async () => {
+    const parent: Transaction = {
+      version: 2,
+      locktime: 0,
+      inputs: [{ outpointTransactionHash: hexToBin("f1".repeat(32)), outpointIndex: 0, sequenceNumber: 0xffffffff, unlockingBytecode: new Uint8Array() }],
+      outputs: [{ lockingBytecode: lock, valueSatoshis: 50000n }],
+    };
+    const category = put(sign(parent, [{ lockingBytecode: lock, valueSatoshis: 51000n }]), 910000);
+    const root = merkleRoot([entryFor("tipped.tgz", new Uint8Array([9]))]);
+    const g = step({ kind: "genesis", version: "tipped", manifestUrl: "https://x.org" }, root, [{ txid: category, vout: 0, satoshis: 50000n }], undefined, 910001);
+    step({ kind: "release", version: "v1", manifestUrl: "https://x.org/v1" }, root, [g.change], g.nft, 910002);
+
+    // tippers sign with key2 and pay the holder (lock); their tip lands in the holder's history
+    const tip = (txid: string, amount: bigint, cat: string, holderLock = lock, height = 910003) => {
+      const u = buildTipTx({ category: cat, version: "v1", holderLock, tipperLock: lock2, funding: [{ txid, vout: 0, satoshis: 10000n }], amount });
+      return put(sign(u.transaction, u.sourceOutputs, key2), height, [hist, hist2]);
+    };
+    const t1 = tip("f2".repeat(32), 2000n, category);
+    tip("f3".repeat(32), 1500n, "ee".repeat(32));
+    const t2 = tip("f4".repeat(32), 1200n, category, lock, 0);
+    // an old tip record from before genesis is ignored
+    tip("f5".repeat(32), 3000n, category, lock, 909999);
+
+    const events = await walkProject(rpc, category);
+    expect(events.map((e) => e.kind)).toEqual(["genesis", "release"]);
+    const tips = await projectTips(rpc, category, events);
+    expect(tips.map((t) => [t.txid, t.sats, t.height, t.version])).toEqual([
+      [t1, 2000n, 910003, "v1"],
+      [t2, 1200n, 0, "v1"],
+    ]);
   });
 });

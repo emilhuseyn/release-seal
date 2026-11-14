@@ -1,36 +1,18 @@
-import { binToHex, hexToBin, publicKeyToP2pkhLockingBytecode, lockingBytecodeToCashAddress } from "@bitauth/libauth";
-import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { broadcast, heldProjects, walletCoins, type HeldProject } from "./chain";
+import { binToHex } from "@bitauth/libauth";
+import { useCallback, useEffect, useState } from "react";
+import { broadcast, heldProjects, type HeldProject } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, findDuplicates, merkleRoot, parseManifest, pickList, projectId, type FileEntry, type Manifest } from "./seal";
-import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, pairLinks, receiveKey, wizardRequest, type Send, type Utxo } from "./tx";
+import { buildPrepTx, buildSealTx, firstSeal, FIRST_VERSION, holderLockOf, wizardRequest, type Send, type Utxo } from "./tx";
+import { ConnectCard, useWallet } from "./wallet";
 import { DropZone, short, Snippet } from "./ui";
 
-// The QR dialog takes no children, so pairing without a second device sits in a bar of its own above the dialog's backdrop.
-export function PairBar({ uri }: { uri: string }) {
-  const links = pairLinks(uri);
-  return (
-    <div className="pairbar">
-      <p>
-        No phone to scan with? <a href={links.app}>Open in a wallet app on this device</a> or{" "}
-        <a href={links.web} target="_blank" rel="noopener noreferrer">
-          open the Cashonize web wallet
-        </a>
-        .
-      </p>
-      <p className="muted">Paytaca: press Copy above and paste the code in its WizardConnect page.</p>
-    </div>
-  );
-}
+export { PairBar } from "./wallet";
 
 // Loaded only when the Seal tab opens, so the WizardConnect stack stays out of the Verify page bundle.
 export default function Publish() {
-  const wc = useWizardConnect({ dappName: "Release Seal", persistSession: true });
-  const [ready, setReady] = useState(false);
-  const [pubHex, setPubHex] = useState("");
-  const [showQr, setShowQr] = useState(false);
+  const w = useWallet();
+  const { wc, lock, address, fundAddress, coinsNow } = w;
   const [drop, setDrop] = useState<{ entries: FileEntry[]; lists: (Manifest | undefined)[]; names: string[] }>({ entries: [], lists: [], names: [] });
   const [project, setProject] = useState("");
   const [name, setName] = useState("");
@@ -40,71 +22,8 @@ export default function Publish() {
   const [reason, setReason] = useState("");
   const [status, setStatus] = useState("");
   const [sent, setSent] = useState("");
-  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [wallet, setWallet] = useState<{ sats: bigint; projects: HeldProject[] } | "error">();
-
-  // The dapp gives up on the key exchange 30 s after the relay connects and only logs it, so a QR scanned later never pairs.
-  useEffect(() => {
-    if (ready || !showQr || !wc.uri) return;
-    setStale(false);
-    const t = setTimeout(() => setStale(true), 30_000);
-    return () => clearTimeout(t);
-  }, [ready, showQr, wc.uri]);
-
-  // connect() refuses while the hook's state still reads "connecting", so the new pairing starts once disconnect has set it to idle.
-  const [renew, setRenew] = useState(false);
-  const { state: wcState, connect } = wc;
-  useEffect(() => {
-    if (!renew || wcState !== "idle") return;
-    setRenew(false);
-    if (connect()) setShowQr(true);
-  }, [renew, wcState, connect]);
-
-  const freshQr = async () => {
-    await wc.disconnect();
-    setReady(false);
-    setPubHex("");
-    setStale(false);
-    setRenew(true);
-  };
-
-  // The key is read on every wallet_ready: Selene's second one (after its user approves) changes nothing in the hook's state,
-  // so a key read once at render time would stay empty.
-  useEffect(() => {
-    const m = wc.manager;
-    if (!m) return;
-    const on = () => {
-      setReady(true);
-      setPubHex(receiveKey(m));
-    };
-    m.on("walletready", on);
-    return () => {
-      m.off?.("walletready", on);
-    };
-  }, [wc.manager]);
-
-  const lock = useMemo(() => (pubHex ? publicKeyToP2pkhLockingBytecode({ publicKey: hexToBin(pubHex) }) : undefined), [pubHex]);
-  const address = useMemo(() => {
-    if (!lock) return "";
-    const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash", tokenSupport: true });
-    return typeof r === "string" ? r : r.address;
-  }, [lock]);
-  // Exchanges and most wallets send only to the plain q address; the token-aware z address above holds the same coins.
-  const fundAddress = useMemo(() => {
-    if (!lock) return "";
-    const r = lockingBytecodeToCashAddress({ bytecode: lock, prefix: "bitcoincash" });
-    return typeof r === "string" ? r : r.address;
-  }, [lock]);
-
-  // Every address of the wallet the page may spend from; pubHex is a dependency because xpubs can arrive after the manager.
-  const coinsNow = useCallback(async () => {
-    const m = wc.manager;
-    return walletCoins(await rpc(), (child, index) => {
-      const k = pubHex ? m?.getPubkey(child, BigInt(index)) : undefined;
-      return k ? publicKeyToP2pkhLockingBytecode({ publicKey: k }) : undefined;
-    });
-  }, [wc.manager, pubHex]);
 
   // Before any click the publisher sees whether the fee money arrived in the wallet and which projects it already holds.
   const loadWallet = useCallback(async () => {
@@ -247,48 +166,13 @@ export default function Publish() {
 
   return (
     <section>
-      {!ready ? (
-        <div className="card">
-          <p>Connect a Bitcoin Cash wallet that speaks WizardConnect: Cashonize, Paytaca or Selene (2026.10 or newer).</p>
-          <p className="muted">
-            Once it pairs, drop any file and press <b>Seal it now</b> to seal it on mainnet for about 2,300 sats, 1,000 of which stay in
-            your wallet on the seal NFT. Your wallet asks before each signature.
-          </p>
-          <button
-            onClick={() => {
-              wc.connect();
-              setShowQr(true);
-            }}
-          >
-            Connect wallet
-          </button>
-          {wc.error && <p className="bad">{wc.error}</p>}
-          {stale && (
-            <p className="muted">
-              No wallet yet. A code older than 30 seconds may no longer pair. <button onClick={freshQr}>New QR code</button>
-            </p>
-          )}
-          <WizardConnectQRDialog
-            show={showQr && !!wc.uri}
-            onClose={() => setShowQr(false)}
-            uri={wc.uri ?? ""}
-            qrUri={wc.qrUri ?? ""}
-            title="Scan with your wallet"
-            subtitle={stale ? "This code is over 30 seconds old and may not pair. Close this and press New QR code." : undefined}
-            className="wc-backdrop"
-          />
-          {showQr && wc.uri && createPortal(<PairBar uri={wc.uri} />, document.body)}
-        </div>
-      ) : !lock ? (
-        <div className="card">
-          <p>
-            {wc.walletName ?? "Your wallet"} is paired but has not shared its address yet. Approve Release Seal in the wallet.
-          </p>
-          <p className="muted">
-            Declined, or nothing after a minute? <button onClick={freshQr}>New QR code</button>
-          </p>
-        </div>
-      ) : (
+      <ConnectCard w={w}>
+        <p className="muted">
+          Once it pairs, drop any file and press <b>Seal it now</b> to seal it on mainnet for about 2,300 sats, 1,000 of which stay in
+          your wallet on the seal NFT. Your wallet asks before each signature.
+        </p>
+      </ConnectCard>
+      {lock && (
         <div className="card">
           <p className="muted">{wc.walletName} connected. Your projects live at this address. Fees come from any address in this wallet.</p>
           <Snippet label="Publisher address" text={fundAddress} />

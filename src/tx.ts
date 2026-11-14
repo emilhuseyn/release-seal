@@ -154,6 +154,56 @@ export const holderLockOf = (address: string, publisherLock: Uint8Array) => {
   return r.bytecode;
 };
 
+// A tip: plain coins of the tipper, largest first, pay the project's current holder at output 0; output 1 is a tip record
+// (release version, project id) so the project page can count tips; change goes back to the tipper's receive/0.
+// No token is spent, so the tipper needs no project and the NFT never moves.
+export const TIP_MIN = 1000n;
+export const buildTipTx = ({
+  category,
+  version,
+  holderLock,
+  tipperLock,
+  funding,
+  amount,
+  feeRate = 1n,
+}: {
+  category: string;
+  version: string;
+  holderLock: Uint8Array;
+  tipperLock: Uint8Array;
+  funding: Utxo[];
+  amount: bigint;
+  feeRate?: bigint;
+}) => {
+  if (!/^[0-9a-f]{64}$/.test(category)) throw new Error("A tip needs the project id");
+  if (amount < TIP_MIN) throw new Error(`The smallest tip is ${TIP_MIN} sats`);
+  if (binToHex(holderLock) === binToHex(tipperLock)) throw new Error("This wallet holds the project; a tip to yourself only pays a fee");
+  const coins = largestFirst(funding.filter((u) => !u.token));
+  const outputs: Output[] = [
+    { lockingBytecode: holderLock, valueSatoshis: amount },
+    { lockingBytecode: encodeRecord({ kind: "tip", version, manifestUrl: category }), valueSatoshis: 0n },
+  ];
+  const plan = (ordered: Utxo[]) => {
+    const tx: Transaction = { version: 2, locktime: 0, inputs: inputsOf(ordered), outputs: [...outputs, { lockingBytecode: tipperLock, valueSatoshis: 0n }] };
+    const fee = BigInt(sizeWith(tx, P2PKH_UNLOCK_SIZE)) * feeRate;
+    const bare = { ...tx, outputs };
+    const total = ordered.reduce((s, u) => s + u.satoshis, 0n);
+    return { ordered, tx, bare, fee, bareFee: BigInt(sizeWith(bare, P2PKH_UNLOCK_SIZE)) * feeRate, total, change: total - amount - fee };
+  };
+  let p = plan(coins.slice(0, 1));
+  for (let n = 2; p.change < DUST && n <= coins.length; n++) p = plan(coins.slice(0, n));
+  let tx = p.tx;
+  let fee = p.fee;
+  if (coins.length && p.change >= DUST) tx.outputs[2].valueSatoshis = p.change;
+  else if (coins.length && p.total - amount >= p.bareFee) {
+    // change under dust goes to the miner rather than making an output nobody can spend
+    tx = p.bare;
+    fee = p.total - amount;
+  } else throw new Error("Not enough BCH in the wallet for this tip and its fee");
+  const sourceOutputs: Output[] = p.ordered.map((u) => ({ lockingBytecode: u.lock ?? tipperLock, valueSatoshis: u.satoshis }));
+  return { transaction: tx, sourceOutputs, fee, paths: p.ordered.map((u) => u.path ?? PUBLISHER) };
+};
+
 // What a sent seal transaction leaves the publisher: the project NFT at output 0 and the change, if any. The next seal
 // spends them at once, before any server has seen the transaction.
 export const sealOutputs = (u: UnsignedSealTx, txid: string) => ({

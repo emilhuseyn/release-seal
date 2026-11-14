@@ -1,12 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
-import { walkProject, type SealEvent } from "./chain";
+import { projectTips, walkProject, type SealEvent, type Tip as TipRow } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { badgeSnippets, greenRelease, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { fetchRelease, label, parseRef, RegistryError, type Fetched } from "./registry";
 import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
+const Tip = lazy(() => import("./Tip"));
 
 // Banner links required by the BLAZE rules. Emil fills these before submission.
 const BANNER = {
@@ -85,6 +86,16 @@ function Verify() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [from, setFrom] = useState<Fetched>();
+  const [tips, setTips] = useState<TipRow[]>();
+
+  // Tips are read after the timeline shows, so a slow history never holds up the check.
+  const loadTips = useCallback(async (cat: string, ev: SealEvent[]) => {
+    try {
+      setTips(await projectTips(await rpc(), cat, ev));
+    } catch {
+      setTips(undefined);
+    }
+  }, []);
 
   const load = useCallback(async (cat: string) => {
     setError("");
@@ -100,6 +111,8 @@ function Verify() {
       setManifests(lists);
       setWrong(wrong);
       setEvents(ev);
+      setTips(undefined);
+      loadTips(cat.toLowerCase(), ev);
       setOpened(cat.toLowerCase());
     } catch (e) {
       const msg = String((e as Error).message ?? e);
@@ -107,7 +120,7 @@ function Verify() {
     } finally {
       setBusy("");
     }
-  }, []);
+  }, [loadTips]);
 
   useEffect(() => {
     if (category) load(category);
@@ -124,6 +137,7 @@ function Verify() {
   };
 
   const latest = events?.filter((e) => e.kind === "release").at(-1);
+  const green = greenRelease(results);
   const name = events?.find((e) => e.kind === "genesis")?.version;
   // the id that was opened, not the input box, which the user may have edited since
   const badge = events ? badgeSnippets(new URL(".", location.href).href, opened) : undefined;
@@ -179,6 +193,12 @@ function Verify() {
               Publisher {short(events.at(-1)!.publisher.replace("bitcoincash:", ""), 8)}. Latest release{" "}
               {latest ? `${latest.version}, block ${latest.height || "unconfirmed"}` : "none yet"}.
             </p>
+            {tips && tips.length > 0 && (
+              <p className="muted">
+                Tipped {tips.length} time{tips.length === 1 ? "" : "s"} by people who checked a release,{" "}
+                {tips.reduce((a, t) => a + t.sats, 0n).toLocaleString("en-US")} sats in all.
+              </p>
+            )}
             <ol className="timeline">
               {events.map((e) => (
                 <li key={e.txid} className={e.revoked ? "revoked" : ""}>
@@ -243,6 +263,11 @@ function Verify() {
           ))}
         </div>
       ))}
+      {events && green && (
+        <Suspense fallback={<p className="muted">Loading the wallet tools...</p>}>
+          <Tip category={opened} version={green.version} holder={events.at(-1)!.publisher} onSent={() => setTimeout(() => loadTips(opened, events), 1500)} />
+        </Suspense>
+      )}
     </section>
   );
 }

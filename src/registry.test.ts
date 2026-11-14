@@ -3,7 +3,7 @@ import { binToHex } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
 import type { SealEvent } from "./chain";
 import { fetchRelease, githubFiles, label, parseRef, pypiFiles, RegistryError } from "./registry";
-import { entryFor, merkleRoot, verdicts, type FileEntry } from "./seal";
+import { entryFor, greenRelease, merkleRoot, verdicts, type FileEntry } from "./seal";
 
 const pub = new URL("../public/", import.meta.url);
 const sealed = JSON.parse(readFileSync(new URL("demo/v1.0.0/seal.json", pub), "utf8"));
@@ -132,5 +132,20 @@ describe("fetchRelease against the sealed demo release", () => {
     await expect(fetchRelease(parseRef("a/b@v9")!, respond({}).get)).rejects.toThrow("GitHub release a/b@v9 was not found.");
     const limited = respond({ "https://api.github.com/repos/a/b/releases/tags/v9": new Response("", { status: 403 }) });
     await expect(fetchRelease(parseRef("a/b@v9")!, limited.get)).rejects.toThrow(/rate limit/);
+  });
+});
+
+describe("greenRelease (the tip button shows only for a full match)", () => {
+  const ev = event(sealed.files);
+  const lists = (n: number) => Array.from({ length: n }, () => undefined);
+  it("both demo files by name: green", () => {
+    expect(greenRelease(verdicts([ev], {}, {}, sealed.files, lists(2)))?.version).toBe("v1.0.0");
+  });
+  it("one matching file and one stranger, a swapped file, a revoked release: no tip", () => {
+    const stranger = entryFor("other.bin", tamperedZip);
+    expect(greenRelease(verdicts([ev], { [ev.txid]: sealed }, {}, [sealed.files[0], stranger], lists(2)))).toBeUndefined();
+    const swapped = entryFor("hello-seal-1.0.0.zip", tamperedZip);
+    expect(greenRelease(verdicts([ev], { [ev.txid]: sealed }, {}, [swapped], lists(1)))).toBeUndefined();
+    expect(greenRelease(verdicts([{ ...ev, revoked: true }], { [ev.txid]: sealed }, {}, sealed.files, lists(2)))).toBeUndefined();
   });
 });

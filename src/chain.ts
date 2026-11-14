@@ -104,6 +104,39 @@ export const walkProject = async (rpc: Rpc, category: string, maxSteps = 500): P
   return events;
 };
 
+export interface Tip {
+  txid: string;
+  height: number;
+  sats: bigint;
+  version: string;
+}
+
+// Tips paid to any holder the project has had: transactions in that address's history since genesis with a tip record naming
+// this project; only the plain coins they paid to that holder count. The newest `max` entries per address are read, CHUNK at once.
+export const projectTips = async (rpc: Rpc, category: string, events: SealEvent[], max = 300): Promise<Tip[]> => {
+  const since = events[0]?.height || 0;
+  const holders = [...new Set(events.map((e) => e.publisher))];
+  const tips: Tip[] = [];
+  const seen = new Set<string>();
+  for (const holder of holders) {
+    const items = (await history(rpc, holder)).filter((i) => i.height <= 0 || !since || i.height >= since).slice(-max);
+    for (let at = 0; at < items.length; at += CHUNK) {
+      const chunk = items.slice(at, at + CHUNK);
+      const txs = await Promise.all(chunk.map((i) => getTx(rpc, i.tx_hash)));
+      txs.forEach((tx, k) => {
+        const txid = chunk[k].tx_hash;
+        const record = tx.outputs.map((o) => decodeRecord(o.lockingBytecode)).find(Boolean);
+        if (record?.kind !== "tip" || record.manifestUrl !== category || seen.has(txid)) return;
+        const sats = tx.outputs.filter((o) => !o.token && addressOf(o.lockingBytecode) === holder).reduce((s, o) => s + o.valueSatoshis, 0n);
+        if (!sats) return;
+        seen.add(txid);
+        tips.push({ txid, height: Math.max(0, chunk[k].height), sats, version: record.version });
+      });
+    }
+  }
+  return tips;
+};
+
 export interface FulcrumUtxo {
   tx_hash: string;
   tx_pos: number;

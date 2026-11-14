@@ -7,7 +7,8 @@ import type { SealEvent } from "./chain";
 export const PREFIX = utf8ToBin("RSEAL");
 export const PROTOCOL = 1;
 // move: the holder hands the NFT to the next maintainer; the version field carries a short reason and the URL may be empty.
-export const KIND = { genesis: 0, release: 1, revoke: 2, move: 3 } as const;
+// tip: anyone pays the current holder; the version field names the release checked, the URL field carries the project id.
+export const KIND = { genesis: 0, release: 1, revoke: 2, move: 3, tip: 4 } as const;
 export type Kind = keyof typeof KIND;
 
 export interface FileEntry {
@@ -265,6 +266,10 @@ export const verdicts = (
       : `${one ? "This file is not" : "None of these files is"} part of any sealed release of this project.`;
   return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks, mismatch }];
 };
+
+// The release the user's files fully proved (every file matches, trusted list, not revoked): the tip button shows only then.
+export const greenRelease = (results: Result[] | null | undefined) =>
+  results?.find((r) => r.rootOk && !r.event.revoked && !r.unchecked && !r.mismatch && r.checks.length > 0 && r.checks.every((c) => c.status === "match"))?.event;
 
 // The id from what a user pastes into an id box: the bare 64-hex category, or a project link or badge link that carries it.
 export const projectId = (text: string) => {
