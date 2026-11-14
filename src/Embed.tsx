@@ -33,6 +33,7 @@ export default function Embed({ project }: { project: string }) {
   // the frame's corners show the host page, not this app's dark background
   useEffect(() => {
     document.body.style.background = "transparent";
+    document.documentElement.style.background = "transparent";
   }, []);
 
   useEffect(() => {
