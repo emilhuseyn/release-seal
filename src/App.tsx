@@ -8,6 +8,7 @@ import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
 const Tip = lazy(() => import("./Tip"));
+const Embed = lazy(() => import("./Embed"));
 
 // Banner links required by the BLAZE rules. Emil fills these before submission.
 const BANNER = {
@@ -224,6 +225,11 @@ function Verify() {
                 <p className="muted">Put it next to your download links. It opens this page with the project already loaded.</p>
                 <Snippet label="HTML" text={badge.html} />
                 <Snippet label="Markdown, for a README" text={badge.markdown} />
+                <p className="muted">
+                  Or a live box on the download page itself: it shows the latest sealed version and checks a dropped file in place (
+                  <a href="./widget-demo/">example page</a>).
+                </p>
+                <Snippet label="Live widget (HTML)" text={badge.widget} />
               </details>
             )}
           </div>
@@ -275,6 +281,14 @@ function Verify() {
 
 export default function App() {
   const [tab, setTab] = useState<"verify" | "publish">("verify");
+  const q = new URLSearchParams(location.search);
+  if (q.get("embed") === "1") {
+    return (
+      <Suspense fallback={null}>
+        <Embed project={(q.get("project") ?? "").toLowerCase()} />
+      </Suspense>
+    );
+  }
   return (
     <main>
       <div className="banner">

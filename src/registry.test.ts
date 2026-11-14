@@ -3,7 +3,7 @@ import { binToHex } from "@bitauth/libauth";
 import { describe, expect, it } from "vitest";
 import type { SealEvent } from "./chain";
 import { fetchRelease, githubFiles, label, parseRef, pypiFiles, RegistryError } from "./registry";
-import { entryFor, greenRelease, merkleRoot, verdicts, type FileEntry } from "./seal";
+import { entryFor, greenRelease, merkleRoot, oneLine, verdicts, type FileEntry } from "./seal";
 
 const pub = new URL("../public/", import.meta.url);
 const sealed = JSON.parse(readFileSync(new URL("demo/v1.0.0/seal.json", pub), "utf8"));
@@ -147,5 +147,17 @@ describe("greenRelease (the tip button shows only for a full match)", () => {
     const swapped = entryFor("hello-seal-1.0.0.zip", tamperedZip);
     expect(greenRelease(verdicts([ev], { [ev.txid]: sealed }, {}, [swapped], lists(1)))).toBeUndefined();
     expect(greenRelease(verdicts([{ ...ev, revoked: true }], { [ev.txid]: sealed }, {}, sealed.files, lists(2)))).toBeUndefined();
+  });
+});
+
+describe("oneLine (the widget's answer)", () => {
+  const ev = event(sealed.files);
+  const zip = sealed.files[0];
+  const run = (files: FileEntry[], e = ev) => oneLine(verdicts([e], { [e.txid]: sealed }, {}, files, files.map(() => undefined)));
+  it("green for the sealed zip, red for the tampered copy, a stranger and a revoked release", () => {
+    expect(run([zip])).toEqual({ good: true, text: "Matches v1.0.0, sealed on Bitcoin Cash." });
+    expect(run([entryFor("hello-seal-1.0.0.zip", tamperedZip)]).good).toBe(false);
+    expect(run([entryFor("other.bin", tamperedZip)])).toEqual({ good: false, text: "This file is not part of any sealed release of this project." });
+    expect(run([zip], { ...ev, revoked: true })).toEqual({ good: false, text: "This is v1.0.0, which the publisher revoked. Do not install it." });
   });
 });

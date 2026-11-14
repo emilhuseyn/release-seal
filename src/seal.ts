@@ -271,6 +271,16 @@ export const verdicts = (
 export const greenRelease = (results: Result[] | null | undefined) =>
   results?.find((r) => r.rootOk && !r.event.revoked && !r.unchecked && !r.mismatch && r.checks.length > 0 && r.checks.every((c) => c.status === "match"))?.event;
 
+// One line for the download-page widget: green only for a full match of a live release.
+export const oneLine = (results: Result[]): { good: boolean; text: string } => {
+  const ok = greenRelease(results);
+  if (ok) return { good: true, text: `Matches ${ok.version}, sealed on Bitcoin Cash.` };
+  const revoked = results.find((r) => r.event.revoked && r.rootOk && r.checks.length > 0 && r.checks.every((c) => c.status === "match"));
+  if (revoked) return { good: false, text: `This is ${revoked.event.version}, which the publisher revoked. Do not install it.` };
+  const why = results.find((r) => r.mismatch)?.mismatch;
+  return { good: false, text: why ?? "Does not match the sealed release. Do not install it." };
+};
+
 // The id from what a user pastes into an id box: the bare 64-hex category, or a project link or badge link that carries it.
 export const projectId = (text: string) => {
   const t = text.trim();
@@ -286,6 +296,7 @@ export const badgeSnippets = (base: string, project: string) => {
   const img = `${root}badge.svg`;
   return {
     link,
+    widget: `<script src="${root}widget.js" data-project="${project.toLowerCase()}" async></script>`,
     html: `<a href="${link}"><img src="${img}" alt="Verify this download with Release Seal" height="20"></a>`,
     markdown: `[![Verify this download with Release Seal](${img})](${link})`,
   };

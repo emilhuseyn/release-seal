@@ -232,6 +232,7 @@ describe("badgeSnippets", () => {
     expect(s.markdown).toBe(`[![Verify this download with Release Seal](https://emilhuseyn.github.io/release-seal/badge.svg)](${s.link})`);
     expect(s.html).toContain(`href="${s.link}"`);
     expect(s.html).toContain('src="https://emilhuseyn.github.io/release-seal/badge.svg"');
+    expect(s.widget).toBe(`<script src="https://emilhuseyn.github.io/release-seal/widget.js" data-project="${"ab".repeat(32)}" async></script>`);
   });
   it("gives nothing for an id that is not a token category", () => {
     expect(badgeSnippets("https://x/", "ab".repeat(31))).toBeUndefined();
