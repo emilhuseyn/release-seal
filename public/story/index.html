@@ -105,6 +105,7 @@
   <div class="banner">
     <a href="../">Release Seal app</a>
     <a href="https://github.com/emilhuseyn/release-seal">Source</a>
+    <a href="../2026-11-14/story/" title="The story as it stood on 14 Nov 2026, when the BLAZE judged window opened">14 Nov story</a>
     <span>BCH BLAZE 2026, Media track</span>
     <span>Donate EMBER2026: bitcoincash:zzrq9aavqx57w49galdt3paav9lnk3zy9q6hszc6q0</span>
   </div>
@@ -266,8 +267,76 @@
 
   <!-- 6 -->
   <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="A release page on a code host. Weeks after publishing, the asset calc-2.5.zip is replaced by a file with the same name; the host shows a new digest, while the seal on Bitcoin Cash still holds the old one.">
+      <rect width="320" height="190" fill="#141a26"/>
+      <rect x="18" y="22" width="190" height="146" rx="8" fill="#f4f7f6"/>
+      <rect x="18" y="22" width="190" height="14" rx="8" fill="#dfe7e4"/>
+      <text x="26" y="32" font-size="7" fill="#5b6b66" font-family="monospace">code host / calc / releases / v2.5</text>
+      <text x="28" y="52" font-size="10" fill="#1b2a25" font-family="sans-serif" font-weight="700">Calc 2.5</text>
+      <text x="28" y="64" font-size="6.5" fill="#5b6b66" font-family="sans-serif">published 3 weeks ago</text>
+      <text x="28" y="82" font-size="7" fill="#33443f" font-family="sans-serif">Assets</text>
+      <g class="swap-out">
+        <rect x="28" y="88" width="170" height="26" rx="4" fill="#e6f2ee" stroke="#0ac18e"/>
+        <text x="36" y="99" font-size="7.5" fill="#1b2a25" font-family="monospace">calc-2.5.zip</text>
+        <text x="36" y="109" font-size="6.5" fill="#078a66" font-family="monospace">sha256 5e81 ... c2</text>
+      </g>
+      <g class="swap-in">
+        <rect x="28" y="88" width="170" height="26" rx="4" fill="#fdeaea" stroke="#ff5d5d"/>
+        <text x="36" y="99" font-size="7.5" fill="#1b2a25" font-family="monospace">calc-2.5.zip</text>
+        <text x="36" y="109" font-size="6.5" fill="#b3261e" font-family="monospace">sha256 a07f ... 3d</text>
+      </g>
+      <text x="28" y="132" font-size="6.5" fill="#5b6b66" font-family="sans-serif">same name, same page, same release.</text>
+      <text x="28" y="142" font-size="6.5" fill="#5b6b66" font-family="sans-serif">a stolen maintainer login is enough.</text>
+      <rect x="222" y="96" width="84" height="52" rx="6" fill="#0ac18e"/>
+      <text x="264" y="112" font-size="7" fill="#04110c" text-anchor="middle" font-family="monospace" font-weight="700">SEAL v2.5</text>
+      <text x="264" y="124" font-size="6.5" fill="#04110c" text-anchor="middle" font-family="monospace">5e81 ... c2</text>
+      <text x="264" y="138" font-size="6" fill="#04110c" text-anchor="middle" font-family="sans-serif">on Bitcoin Cash</text>
+      <circle cx="264" cy="70" r="13" fill="#ff5d5d" class="pulse"/>
+      <path d="M258 64 l12 12 M270 64 l-12 12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+    </svg>
     <div class="text">
       <div class="num">6</div>
+      <h2>The quieter attack: a swapped release asset</h2>
+      <p>Not every attacker breaks into a website. Some steal a maintainer's login and replace one file on a release that went out weeks ago. Same name, same page, new bytes. The code host even shows the new digest, so anything that trusts the host trusts the swap.</p>
+      <p>The seal was written when the release shipped, and nobody can edit it afterwards. The old digest on Bitcoin Cash and the new one on the host no longer agree, and that disagreement is the alarm.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="panel">
+    <svg viewBox="0 0 320 190" role="img" aria-label="Release Seal reads the digests a code host publishes for a release, compares them with the seal on Bitcoin Cash, shows a green check, and offers a button to tip the maintainer in BCH.">
+      <rect width="320" height="190" fill="#0f1a17"/>
+      <rect x="20" y="22" width="280" height="30" rx="8" fill="#f4f7f6"/>
+      <text x="32" y="41" font-size="9" fill="#1b2a25" font-family="monospace">calc/calc@v2.5</text>
+      <rect x="236" y="27" width="56" height="20" rx="5" fill="#0ac18e"/>
+      <text x="264" y="40" font-size="8" fill="#04110c" text-anchor="middle" font-family="sans-serif" font-weight="700">Check</text>
+      <path d="M60 60 v14 M160 60 v14 M260 60 v14" stroke="#2c4a42" stroke-width="2" stroke-dasharray="3 3"/>
+      <rect x="20" y="78" width="80" height="34" rx="6" fill="#16302a" stroke="#2c4a42"/>
+      <text x="60" y="92" font-size="6.5" fill="#e6f2ee" text-anchor="middle" font-family="sans-serif">GitHub release</text>
+      <text x="60" y="104" font-size="6.5" fill="#8fa69e" text-anchor="middle" font-family="sans-serif">PyPI / npm</text>
+      <rect x="120" y="78" width="80" height="34" rx="6" fill="url(#chain)"/>
+      <text x="160" y="92" font-size="6.5" fill="#04110c" text-anchor="middle" font-family="monospace" font-weight="700">SEAL v2.5</text>
+      <text x="160" y="104" font-size="6.5" fill="#04110c" text-anchor="middle" font-family="sans-serif">Bitcoin Cash</text>
+      <circle cx="260" cy="95" r="17" fill="#0ac18e"/>
+      <path d="M251 95 l6 6 l12 -13" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <rect x="196" y="130" width="104" height="26" rx="13" fill="#f5c451" class="pulse"/>
+      <text x="248" y="147" font-size="8.5" fill="#3d2d05" text-anchor="middle" font-family="sans-serif" font-weight="700">Tip the maintainer</text>
+      <text x="20" y="140" font-size="7" fill="#e6f2ee" font-family="sans-serif">No download, no file juggling.</text>
+      <text x="20" y="152" font-size="7" fill="#8fa69e" font-family="sans-serif">Green? Say thanks in BCH.</text>
+    </svg>
+    <div class="text">
+      <div class="num">7</div>
+      <h2>Check by name, then say thanks</h2>
+      <p>You do not even need the file. Type the release the way you would install it, <code>owner/repo@tag</code>, <code>name==version</code> or <code>name@version</code>, and Release Seal reads the digests GitHub, PyPI or npm publish and holds them against the seal.</p>
+      <p>When it comes back green, one button sends the maintainer a small BCH tip, straight to the wallet that holds the project. Open source gets checked and gets paid in the same minute.</p>
+      <p class="muted">Try it on mainnet: open the <a href="../?project=0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42">hello-seal demo project</a> and check <code>emilhuseyn/release-seal@hello-seal-v1.0.0</code> by name. Maintainers can put the same check on their own download page with one script tag (<a href="../widget-demo/">example</a>).</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="panel">
+    <div class="text">
+      <div class="num">8</div>
       <h2>Why Bitcoin Cash</h2>
       <p>A checksum is only useful where the attacker cannot write. Bitcoin Cash makes that place cheap and open to everyone.</p>
     </div>
