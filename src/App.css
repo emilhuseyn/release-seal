@@ -222,3 +222,17 @@ input {
 .pairbar .muted {
   color: #9ca3af;
 }
+
+.byname {
+  margin: 12px 0;
+}
+
+.byname label {
+  display: block;
+  font-weight: 600;
+}
+
+.byname input {
+  flex: 1 1 220px;
+  min-width: 0;
+}

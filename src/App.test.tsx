@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DemoFiles } from "./App";
+import { ByName, DemoFiles } from "./App";
 
 const pub = new URL("../public/", import.meta.url);
 const sealed = JSON.parse(readFileSync(new URL("demo/v1.0.0/seal.json", pub), "utf8"));
@@ -15,5 +15,13 @@ describe("DemoFiles", () => {
 
   it("shows nothing under any other project", () => {
     expect(renderToStaticMarkup(<DemoFiles project={"ab".repeat(32)} />)).toBe("");
+  });
+});
+
+describe("ByName", () => {
+  it("renders a labelled box for a release name next to the drop zone", () => {
+    const html = renderToStaticMarkup(<ByName onFetched={() => {}} />);
+    expect(html).toMatch(/<label for="byname">Or check a published release by name, no download<\/label>/);
+    expect(html).toMatch(/<input id="byname"/);
   });
 });

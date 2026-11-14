@@ -255,12 +255,14 @@ export const verdicts = (
   // Without a list the drop is still known not to be the sealed set, which for a one-file release (the Seal it now path) means changed.
   const one = dropped.length === 1;
   const which = missing.length === 1 ? `the sealed ${event.version}` : "any sealed release";
-  const mismatch =
-    missing.length && dropped.length
+  // Every release had a trusted list and none names these files (a wrong download, or another package checked by name).
+  const mismatch = !dropped.length
+    ? undefined
+    : missing.length
       ? one
         ? `This file is not ${which}. If that release is only this one file, this copy was changed.`
         : `These files are not exactly ${which}. If that release is only these files, at least one was changed.`
-      : undefined;
+      : `${one ? "This file is not" : "None of these files is"} part of any sealed release of this project.`;
   return [{ event, rootOk: !wrong[event.txid], note, unchecked: missing.length > 0, checks, mismatch }];
 };
 

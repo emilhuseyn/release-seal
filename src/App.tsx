@@ -3,6 +3,7 @@ import "./App.css";
 import { walkProject, type SealEvent } from "./chain";
 import { rpc } from "./rpc";
 import { badgeSnippets, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { fetchRelease, label, parseRef, RegistryError, type Fetched } from "./registry";
 import { DropZone, short, Snippet } from "./ui";
 
 const Publish = lazy(() => import("./Publish"));
@@ -28,6 +29,48 @@ export function DemoFiles({ project }: { project: string }) {
   );
 }
 
+// Check by name: a GitHub release, a PyPI version or an npm version, without downloading anything by hand.
+export function ByName({ onStart, onFetched, get }: { onStart?: () => void; onFetched: (f: Fetched) => void; get?: (url: string) => Promise<Response> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <form
+      className="byname"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        onStart?.();
+        const ref = parseRef(text);
+        if (!ref) return setError("Write owner/repo@tag for GitHub, name==version for PyPI or name@version for npm, or paste the release page link.");
+        setBusy(true);
+        try {
+          const f = await fetchRelease(ref, get);
+          if (!f.files.length) throw new RegistryError(`${label(ref)} publishes no SHA-256 for any of its files, so it cannot be checked by name. Download the files and drop them.`);
+          onFetched(f);
+        } catch (err) {
+          setError(err instanceof RegistryError ? err.message : `Could not read ${label(ref)}: ${(err as Error).message}`);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label htmlFor="byname">Or check a published release by name, no download</label>
+      <div className="row">
+        <input id="byname" value={text} onChange={(e) => setText(e.target.value)} placeholder="owner/repo@v1.2.0, name==1.2.0, name@1.2.0" spellCheck={false} />
+        <button type="submit" disabled={busy}>
+          {busy ? "Reading..." : "Check"}
+        </button>
+      </div>
+      {error && (
+        <p className="bad" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function Verify() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("project") ?? "");
   const [events, setEvents] = useState<SealEvent[] | null>(null);
@@ -37,6 +80,7 @@ function Verify() {
   const [results, setResults] = useState<Result[] | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [from, setFrom] = useState<Fetched>();
 
   const load = useCallback(async (cat: string) => {
     setError("");
@@ -69,6 +113,7 @@ function Verify() {
 
   const verify = async (all: FileEntry[], raw: File[]) => {
     if (!events) return;
+    setFrom(undefined);
     // A dropped seal.json stands in for a list the page could not fetch (site down or taken over, no CORS); the chain decides.
     const lists = await Promise.all(raw.map(async (f) => (/\.json$/i.test(f.name) && f.size < 1e6 ? parseManifest(await f.text()) : undefined)));
     setResults(verdicts(events, manifests, wrong, all, lists));
@@ -160,7 +205,24 @@ function Verify() {
           </div>
           <DemoFiles project={opened} />
           <DropZone onFiles={verify} label="Drop downloaded files here to check them" />
+          <ByName
+            onStart={() => {
+              setFrom(undefined);
+              setResults(null);
+            }}
+            onFetched={(f) => {
+              setFrom(f);
+              setResults(verdicts(events, manifests, wrong, f.files, f.files.map(() => undefined)));
+            }}
+          />
         </>
+      )}
+      {from && results && (
+        <p className="muted">
+          Checked {from.files.length} file{from.files.length === 1 ? "" : "s"} of <a href={from.page}>{label(from.ref)}</a> by the hashes{" "}
+          {from.ref.source === "npm" ? "of the tarball, fetched from the npm registry" : `${from.ref.source === "github" ? "GitHub" : "PyPI"} publishes`}.
+          {from.skipped.length > 0 && ` Not checked, no SHA-256 published: ${from.skipped.join(", ")}.`}
+        </p>
       )}
       {results?.map((r) => (
         <div key={r.event.txid} className="card">
