@@ -47,7 +47,8 @@ Check by name: under an open project, type `owner/repo@tag` (GitHub), `name==ver
 the release page link. The page reads the SHA-256 digests the registry publishes (for npm, which publishes no SHA-256, it fetches
 the tarball from registry.npmjs.org and hashes it) and holds them against the seal. Nothing to download by hand. A GitHub release
 asset replaced after publishing has a new digest and reads red. Assets uploaded before GitHub started publishing digests are
-named as not checked.
+named as not checked. A link can carry the release as well: `?project=<id>&check=owner/repo@tag` opens the project and runs
+the check, as the demo link on the home page does.
 
 Tip the maintainer: after a green check, a card offers 2,000, 10,000 or 50,000 satoshis from any WizardConnect wallet to the
 address that holds the project. The transaction carries a tip record (`RSEAL` kind 4, with the version checked and the project
