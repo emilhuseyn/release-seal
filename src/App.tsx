@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { projectTips, walkProject, type SealEvent, type Tip as TipRow } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, greenRelease, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { badgeSnippets, checkLine, greenRelease, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { fetchRelease, label, parseRef, RegistryError, type Fetched } from "./registry";
 import { DropZone, short, Snippet } from "./ui";
 
@@ -264,7 +264,7 @@ function Verify() {
           {r.note && <p className="muted">{r.note}</p>}
           {r.checks.map((c) => (
             <p key={c.name} className={c.status === "match" && r.rootOk && !r.event.revoked ? "good" : c.status === "unknown" ? "muted" : "bad"}>
-              {r.unchecked ? "Not checked yet" : `${c.status === "match" ? "Matches" : c.status === "changed" ? "DIFFERENT from" : "Not part of"} ${c.expected?.name ?? "this release"}`}: {c.name}
+              {checkLine(c, r.unchecked)}
             </p>
           ))}
         </div>

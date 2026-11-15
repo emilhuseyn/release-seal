@@ -271,6 +271,13 @@ export const verdicts = (
 export const greenRelease = (results: Result[] | null | undefined) =>
   results?.find((r) => r.rootOk && !r.event.revoked && !r.unchecked && !r.mismatch && r.checks.length > 0 && r.checks.every((c) => c.status === "match"))?.event;
 
+// One line per checked file. The checked name follows only when it differs from the sealed one (a renamed download).
+export function checkLine(c: Check, unchecked?: boolean) {
+  if (unchecked) return `Not checked yet: ${c.name}`;
+  const head = `${c.status === "match" ? "Matches" : c.status === "changed" ? "DIFFERENT from" : "Not part of"} ${c.expected?.name ?? "this release"}`;
+  return c.expected?.name === c.name ? head : `${head}: ${c.name}`;
+}
+
 // One line for the download-page widget: green only for a full match of a live release.
 export const oneLine = (results: Result[]): { good: boolean; text: string } => {
   const ok = greenRelease(results);
