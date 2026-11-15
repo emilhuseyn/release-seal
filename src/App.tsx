@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { projectTips, walkProject, type SealEvent, type Tip as TipRow } from "./chain";
 import { rpc } from "./rpc";
-import { badgeSnippets, checkLine, greenRelease, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
+import { badgeSnippets, checkLine, checkLink, greenRelease, loadManifests, parseManifest, projectId, verdicts, type FileEntry, type Manifest, type Result } from "./seal";
 import { fetchRelease, label, parseRef, RegistryError, type Fetched } from "./registry";
 import { DropZone, short, Snippet } from "./ui";
 
@@ -36,29 +36,37 @@ export function DemoFiles({ project }: { project: string }) {
 }
 
 // Check by name: a GitHub release, a PyPI version or an npm version, without downloading anything by hand.
-export function ByName({ onStart, onFetched, get }: { onStart?: () => void; onFetched: (f: Fetched) => void; get?: (url: string) => Promise<Response> }) {
-  const [text, setText] = useState("");
+export function ByName({ initial = "", onStart, onFetched, get }: { initial?: string; onStart?: () => void; onFetched: (f: Fetched) => void; get?: (url: string) => Promise<Response> }) {
+  const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const run = async (name: string) => {
+    setError("");
+    onStart?.();
+    const ref = parseRef(name);
+    if (!ref) return setError("Write owner/repo@tag for GitHub, name==version for PyPI or name@version for npm, or paste the release page link.");
+    setBusy(true);
+    try {
+      const f = await fetchRelease(ref, get);
+      if (!f.files.length) throw new RegistryError(`${label(ref)} publishes no SHA-256 for any of its files, so it cannot be checked by name. Download the files and drop them.`);
+      onFetched(f);
+    } catch (err) {
+      setError(err instanceof RegistryError ? err.message : `Could not read ${label(ref)}: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // a release named in the link is checked once, as soon as the project is open
+  useEffect(() => {
+    if (initial) run(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <form
       className="byname"
-      onSubmit={async (e) => {
+      onSubmit={(e) => {
         e.preventDefault();
-        setError("");
-        onStart?.();
-        const ref = parseRef(text);
-        if (!ref) return setError("Write owner/repo@tag for GitHub, name==version for PyPI or name@version for npm, or paste the release page link.");
-        setBusy(true);
-        try {
-          const f = await fetchRelease(ref, get);
-          if (!f.files.length) throw new RegistryError(`${label(ref)} publishes no SHA-256 for any of its files, so it cannot be checked by name. Download the files and drop them.`);
-          onFetched(f);
-        } catch (err) {
-          setError(err instanceof RegistryError ? err.message : `Could not read ${label(ref)}: ${(err as Error).message}`);
-        } finally {
-          setBusy(false);
-        }
+        run(text);
       }}
     >
       <label htmlFor="byname">Or check a published release by name, no download</label>
@@ -79,6 +87,8 @@ export function ByName({ onStart, onFetched, get }: { onStart?: () => void; onFe
 
 function Verify() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("project") ?? "");
+  // only for the project the page was opened with; opening another project drops it
+  const [pendingCheck, setPendingCheck] = useState(() => new URLSearchParams(location.search).get("check") ?? "");
   const [events, setEvents] = useState<SealEvent[] | null>(null);
   const [opened, setOpened] = useState("");
   const [manifests, setManifests] = useState<Record<string, Manifest>>({});
@@ -151,6 +161,7 @@ function Verify() {
           // a pasted project or badge link opens its project
           const id = projectId(category) ?? category;
           setCategory(id);
+          setPendingCheck("");
           history.replaceState(null, "", `?project=${id}`);
           load(id);
         }}
@@ -161,7 +172,8 @@ function Verify() {
       {DEMO_PROJECT && !events && (
         <p className="muted">
           No project to hand? Open the <a href={`?project=${DEMO_PROJECT}`}>demo project</a>, then drop its{" "}
-          <a href="./demo/v1.0.0/hello-seal-1.0.0.zip">sealed zip</a> or a <a href="./demo/tampered/hello-seal-1.0.0.zip">tampered copy</a>.
+          <a href="./demo/v1.0.0/hello-seal-1.0.0.zip">sealed zip</a> or a <a href="./demo/tampered/hello-seal-1.0.0.zip">tampered copy</a>, or
+          see <a href={checkLink(DEMO_PROJECT, DEMO_RELEASE)}>its GitHub release checked by name</a> in one click.
         </p>
       )}
       {!events && !busy && (
@@ -236,7 +248,9 @@ function Verify() {
           <DemoFiles project={opened} />
           <DropZone onFiles={verify} label="Drop downloaded files here to check them" />
           <ByName
+            initial={pendingCheck}
             onStart={() => {
+              setPendingCheck("");
               setFrom(undefined);
               setResults(null);
             }}
