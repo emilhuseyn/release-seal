@@ -4,8 +4,13 @@ Check that the file you downloaded is the file the maintainer shipped. The proof
 
 Live demo: https://emilhuseyn.github.io/release-seal/
 Demo project on mainnet: https://emilhuseyn.github.io/release-seal/?project=0bdf14fca14c69a2fc695191ffb94a2e0dda4b61ca6c4998fbaf3a02b3f40d42
-(download the sealed zip and the tampered copy from the line under the project, then drop each one).
+(download the sealed zip and the tampered copy from the line under the project, then drop each one, or type
+`emilhuseyn/release-seal@hello-seal-v1.0.0` in the by-name box).
 Built for BCH BLAZE 2026, Mainnet track.
+
+BLAZE judged window (14-22 November 2026): the app as it stood on 14 November is the base, live at
+https://emilhuseyn.github.io/release-seal/2026-11-14/ with its code at tag `blaze-2026-11-14`. Built in the window: check a
+release by name, tip the maintainer, and the live widget for download pages (all three below), plus the story panels 6 and 7.
 
 ## Why
 
@@ -37,6 +42,16 @@ of a release still works, because the files' own root is compared with the seal.
 
 Verify: open the page with `?project=<token category>`, or paste the id or a project or badge link into the box, then drop the files
 you downloaded.
+
+Check by name: under an open project, type `owner/repo@tag` (GitHub), `name==version` (PyPI) or `name@version` (npm), or paste
+the release page link. The page reads the SHA-256 digests the registry publishes (for npm, which publishes no SHA-256, it fetches
+the tarball from registry.npmjs.org and hashes it) and holds them against the seal. Nothing to download by hand. A GitHub release
+asset replaced after publishing has a new digest and reads red. Assets uploaded before GitHub started publishing digests are
+named as not checked.
+
+Tip the maintainer: after a green check, a card offers 2,000, 10,000 or 50,000 satoshis from any WizardConnect wallet to the
+address that holds the project. The transaction carries a tip record (`RSEAL` kind 4, with the version checked and the project
+id), and the project page counts the tips across every address the project has had. The project NFT is never touched.
 
 Seal: connect a wallet that speaks WizardConnect (Cashonize, Paytaca, or Selene 2026.10 or newer), create a project, drop the release files, enter the version
 and the URL where `seal.json` will live, download `seal.json`, host it at that URL, then seal. A seal costs a few hundred satoshis
@@ -83,6 +98,17 @@ root.
 Badge: an open project's page has a "Badge for your download page" box with HTML and Markdown to copy. The badge links to
 `?project=<id>`, so a user who clicks it lands on the verify page with the project loaded and only has to drop the file.
 
+Live widget: the same box gives one script tag for a download page. It shows the latest sealed version, its block and whether it
+was revoked, and checks a dropped file on the page itself in one line. Example:
+https://emilhuseyn.github.io/release-seal/widget-demo/
+
+```html
+<script src="https://emilhuseyn.github.io/release-seal/widget.js" data-project="<id>" async></script>
+```
+
+It adds a small frame of this site right after the tag. That frame reports only its height, and the script listens only to its
+own frame.
+
 ## Status
 
 Transactions are built in the browser with libauth. Tests sign them with throwaway keys on dummy coins and run them through
@@ -91,7 +117,10 @@ libauth's Bitcoin Cash virtual machine, token rules included.
 On mainnet, the demo project hello-seal was created and its v1.0.0 sealed from a Cashonize wallet on 6 November 2026, both in
 block 976212: [creation](https://blockchair.com/bitcoin-cash/transaction/6305ffc7724d8e0258a6ad11ee3f8df6e2777b30c6f787320067c2a690e5d38a),
 [v1.0.0 seal](https://blockchair.com/bitcoin-cash/transaction/76c084ab811befbe86fe89748ec477a00383addfb91ed94bcf88e4232244a7a2).
-Its files are in `public/demo/v1.0.0`, and `public/demo/tampered` holds a copy with one line added.
+Its files are in `public/demo/v1.0.0`, and `public/demo/tampered` holds a copy with one line added. For the check by
+name, the same two files are the assets of the GitHub release `hello-seal-v1.0.0` in this repo. On 14 November 2026 came the
+first tip: 2,000 satoshis from a Paytaca wallet after a green check by name
+([tip](https://blockchair.com/bitcoin-cash/transaction/3563f24c3903cd00260e152be47434fa31c01214a9fe5e5c9446f7a1bab51ea2)).
 
 ## Development
 
