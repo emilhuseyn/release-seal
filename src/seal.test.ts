@@ -129,13 +129,13 @@ describe("without a fetched file list", () => {
       signal.addEventListener("abort", () => aborted.push(url));
       if (url === "hang") return new Promise<string>(() => {});
       if (url === "dead") return Promise.reject(new Error("offline"));
-      return new Promise<string>((ok) => setTimeout(() => ok(url === "swapped" ? swapped : good), 80));
+      return new Promise<string>((ok) => setTimeout(() => ok(url === "swapped" ? swapped : good), 150));
     };
     const events = [ev("genesis", "g", "site"), ev("release", "a", "hang"), ev("release", "b", "good"), ev("release", "c", "swapped"), ev("release", "d", "dead"), ev("release", "e", "good")];
     const t0 = Date.now();
-    const { lists, wrong } = await loadManifests(events, get, 100);
-    // one after another this takes 100 + 3 x 80 ms
-    expect(Date.now() - t0).toBeLessThan(250);
+    const { lists, wrong } = await loadManifests(events, get, 500);
+    // one after another this takes 500 + 3 x 150 ms; the wide gap keeps a busy test run from tripping the limit
+    expect(Date.now() - t0).toBeLessThan(800);
     expect(asked).not.toContain("site");
     expect(Object.keys(lists).sort()).toEqual(["b", "e"]);
     expect(wrong).toEqual({ c: true });
