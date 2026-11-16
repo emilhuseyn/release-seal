@@ -234,7 +234,7 @@ export interface Verdict {
 }
 
 // Starting from a Nostr key: its signed claim, the proof transaction it names, and the address's own latest record.
-export const verifyFromNostr = async (rpc: Rpc, io: NostrIO, pubkey: string): Promise<Verdict> => {
+export const verifyFromNostr = async (rpc: Rpc, io: NostrIO, pubkey: string, max = 400): Promise<Verdict> => {
   const event = await latestIdentities(io, pubkey);
   const checks: Check[] = [{ label: "Signed NIP-39 identity list (kind 10011) found on the relays", ok: !!event }];
   const claim = bchClaims(event)[0];
@@ -251,18 +251,19 @@ export const verifyFromNostr = async (rpc: Rpc, io: NostrIO, pubkey: string): Pr
   const proof = await readLinkTx(rpc, claim.txid, lock).catch(() => undefined);
   checks.push({ label: "The proof transaction spends a coin of that address (only its key could sign it)", ok: !!proof });
   checks.push({ label: "Its OP_RETURN carries the NIP-39 verification text for this npub", ok: !!proof && !proof.revoke && proof.pubkey === pubkey });
-  const records = proof ? await linkRecords(rpc, address).catch(() => []) : [];
+  const records = proof ? await linkRecords(rpc, address, 0, max).catch(() => []) : [];
   const now = currentKey(records);
   checks.push({ label: "The address has not linked another key or revoked this one since", ok: !!now && now.pubkey === pubkey });
   return { pubkey, address, txid: claim.txid, height: records.find((r) => r.txid === claim.txid)?.height, verified: checks.every((c) => c.ok), checks };
 };
 
 // Starting from a BCH address: its own latest record names the key, and that key's signed claim must name the address back.
-export const verifyFromAddress = async (rpc: Rpc, io: NostrIO, address: string): Promise<Verdict | undefined> => {
+// `max` bounds how much of the address history is read (the newest entries), for pages that check many addresses.
+export const verifyFromAddress = async (rpc: Rpc, io: NostrIO, address: string, max = 400): Promise<Verdict | undefined> => {
   const name = addressName(lockFromAddress(address));
-  const now = currentKey(await linkRecords(rpc, name));
+  const now = currentKey(await linkRecords(rpc, name, 0, max));
   if (!now) return undefined;
-  const v = await verifyFromNostr(rpc, io, now.pubkey);
+  const v = await verifyFromNostr(rpc, io, now.pubkey, max);
   const back = v.address === name;
   return { ...v, address: name, txid: now.txid, height: now.height, verified: v.verified && back, checks: [...v.checks, { label: "The key's signed claim names this address back", ok: back }] };
 };

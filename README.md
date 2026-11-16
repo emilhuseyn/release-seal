@@ -116,7 +116,9 @@ https://emilhuseyn.github.io/release-seal/identity/ links a Bitcoin Cash address
 a small transaction from the address whose OP_RETURN carries NIP-39's verification text for the npub, and a NIP-39 identity
 list (kind 10011) signed by the Nostr key that names the address and that transaction. Anyone can verify the pair from either
 side, an app can sign a user in with a Nostr challenge and learn their verified address, and people can pay an npub without
-asking for an address. Protocol, verification steps and security notes: [docs/identity.md](docs/identity.md).
+asking for an address. A project page here names the maintainer's Nostr identity when the holder's address has linked one,
+so a verified release also says who stands behind it. Protocol, verification steps and security notes:
+[docs/identity.md](docs/identity.md).
 
 ## Status
 

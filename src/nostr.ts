@@ -4,7 +4,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, SimplePool, type
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { NostrIO } from "./identity";
 
-export const RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://relay.nostr.band"];
+// Probed 16 Nov from Baku: all five answer a kind 10011 query in under a second; relay.nostr.band did not connect.
+export const RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://relay.snort.social", "wss://nostr.mom"];
 
 let pool: SimplePool | undefined;
 const thePool = () => (pool ??= new SimplePool());

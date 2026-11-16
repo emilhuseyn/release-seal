@@ -89,7 +89,7 @@ Type an npub, get its verified address, pay it. The page refuses to offer paymen
 ## Security notes
 
 - No private key is exposed or shared: the wallet signs the BCH proof, the extension or local key signs Nostr events.
-- A claim is only as fresh as the relays and the server answering. The page asks four relays and reads the chain from one
+- A claim is only as fresh as the relays and the server answering. The page asks five relays and reads the chain from one
   of seven public Fulcrum servers, moving to the next if one fails.
 - nostr-tools caches a verification verdict on the event object under a symbol, and a spread copy keeps it. Verification here
   rebuilds the event from its seven NIP-01 fields first, so an event edited after verifying fails (tested).

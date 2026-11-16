@@ -9,6 +9,7 @@ import { DropZone, short, Snippet } from "./ui";
 const Publish = lazy(() => import("./Publish"));
 const Tip = lazy(() => import("./Tip"));
 const Embed = lazy(() => import("./Embed"));
+const MaintainerId = lazy(() => import("./MaintainerId"));
 
 // Banner links required by the BLAZE rules. Emil fills these before submission.
 const BANNER = {
@@ -206,6 +207,9 @@ function Verify() {
               Publisher {short(events.at(-1)!.publisher.replace("bitcoincash:", ""), 8)}. Latest release{" "}
               {latest ? `${latest.version}, block ${latest.height || "unconfirmed"}` : "none yet"}.
             </p>
+            <Suspense fallback={null}>
+              <MaintainerId address={events.at(-1)!.publisher} />
+            </Suspense>
             {tips && tips.length > 0 && (
               <p className="muted">
                 Tipped {tips.length} time{tips.length === 1 ? "" : "s"} by people who checked a release,{" "}
