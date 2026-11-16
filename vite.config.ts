@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './',
-  build: { target: 'es2022' },
+  // identity/ is a second page (BCH Nostr ID) sharing the wallet and chain code
+  build: { target: 'es2022', rollupOptions: { input: { main: 'index.html', identity: 'identity/index.html' } } },
   optimizeDeps: { esbuildOptions: { target: 'es2022' } },
 })

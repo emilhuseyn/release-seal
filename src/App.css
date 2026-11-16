@@ -263,3 +263,27 @@ input {
 .embed-foot {
   font-size: 0.85em;
 }
+
+.checks {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+
+.checks li + li {
+  margin-top: 4px;
+}
+
+code.secret {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.demoapp {
+  border-style: dashed;
+}
+
+main > h2 {
+  margin: 28px 0 10px;
+  font-size: 1.2rem;
+}

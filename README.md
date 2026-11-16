@@ -110,6 +110,14 @@ https://emilhuseyn.github.io/release-seal/widget-demo/
 It adds a small frame of this site right after the tag. That frame reports only its height, and the script listens only to its
 own frame.
 
+## BCH Nostr ID
+
+https://emilhuseyn.github.io/release-seal/identity/ links a Bitcoin Cash address and a Nostr key with a proof from each key:
+a small transaction from the address whose OP_RETURN carries NIP-39's verification text for the npub, and a NIP-39 identity
+list (kind 10011) signed by the Nostr key that names the address and that transaction. Anyone can verify the pair from either
+side, an app can sign a user in with a Nostr challenge and learn their verified address, and people can pay an npub without
+asking for an address. Protocol, verification steps and security notes: [docs/identity.md](docs/identity.md).
+
 ## Status
 
 Transactions are built in the browser with libauth. Tests sign them with throwaway keys on dummy coins and run them through

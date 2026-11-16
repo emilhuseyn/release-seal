@@ -51,7 +51,7 @@ const addressOf = (lock: Uint8Array) => {
   return typeof r === "string" ? r : r.address;
 };
 
-const history = async (rpc: Rpc, address: string) => {
+export const history = async (rpc: Rpc, address: string) => {
   const h = await rpc.request("blockchain.address.get_history", address);
   if (!Array.isArray(h)) throw new Error(`Could not read history of ${address}`);
   return h as HistoryItem[];

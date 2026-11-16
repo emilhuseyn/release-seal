@@ -84,8 +84,8 @@ export const encodeRecord = (r: SealRecord) => {
   return script;
 };
 
-// Reads the pushes after OP_RETURN. Returns undefined for anything that is not a version 1 seal record.
-export const decodeRecord = (script: Uint8Array): SealRecord | undefined => {
+// The data pushes after OP_RETURN, or undefined for any other script or a malformed push.
+export const opReturnPushes = (script: Uint8Array): Uint8Array[] | undefined => {
   if (script[0] !== Opcodes.OP_RETURN) return undefined;
   const pushes: Uint8Array[] = [];
   let i = 1;
@@ -106,6 +106,13 @@ export const decodeRecord = (script: Uint8Array): SealRecord | undefined => {
     pushes.push(script.slice(i, i + len));
     i += len;
   }
+  return pushes;
+};
+
+// Reads the pushes after OP_RETURN. Returns undefined for anything that is not a version 1 seal record.
+export const decodeRecord = (script: Uint8Array): SealRecord | undefined => {
+  const pushes = opReturnPushes(script);
+  if (!pushes) return undefined;
   if (pushes.length !== 5 || binToHex(pushes[0]) !== binToHex(PREFIX)) return undefined;
   const proto = pushes[1].length ? pushes[1][0] : 0;
   const kindNum = pushes[2].length ? pushes[2][0] : 0;

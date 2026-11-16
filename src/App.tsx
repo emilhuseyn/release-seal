@@ -309,6 +309,7 @@ export default function App() {
         <a href={BANNER.deck || undefined}>Deck</a>
         <a href={BANNER.repo || undefined}>Source</a>
         <a href="./story/">Story</a>
+        <a href="./identity/" title="Link a BCH address and a Nostr key (Paytaca identity bounty)">Nostr ID</a>
         <a href="./2026-11-14/" title="The app as it stood on 14 Nov 2026, when the BLAZE judged window opened">14 Nov demo</a>
         <a href="https://github.com/emilhuseyn/release-seal/tree/blaze-2026-11-14" title="Source at tag blaze-2026-11-14">14 Nov code</a>
         <span>Donate EMBER2026: {BANNER.emberAddress || "address pending"}</span>

@@ -16,6 +16,7 @@
     "@wizardconnect/core": "^0.2.5",
     "@wizardconnect/dapp": "^0.2.2",
     "@wizardconnect/react": "^0.2.3",
+    "nostr-tools": "2.25.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
