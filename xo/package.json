@@ -1,0 +1,17 @@
+{
+  "name": "release-seal-xo",
+  "private": true,
+  "type": "module",
+  "description": "Release Seal and BCH Nostr ID as XO templates (BCH BLAZE 2026 XO bounties)",
+  "scripts": {
+    "check": "node check-templates.mjs"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.1.0-next.8",
+    "@xo-cash/engine": "0.1.1-next.18029697917",
+    "@xo-cash/templates": "0.0.12",
+    "@xo-cash/utils": "0.0.10",
+    "@xo-cash/state": "0.0.5",
+    "@xo-cash/types": "0.0.8"
+  }
+}

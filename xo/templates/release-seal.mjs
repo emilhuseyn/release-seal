@@ -1,0 +1,265 @@
+// Release Seal as an XO template (BCH BLAZE 2026, "Migrate to XO").
+// The same transactions the Release Seal web app builds by hand (src/tx.ts): a project is a CashTokens category whose
+// mutable NFT carries the Merkle root of the latest release's files; every step spends that NFT at input 0, recreates it at
+// output 0 and writes an OP_RETURN record <"RSEAL"> <1> <kind> <version> <url> at output 1. A project made or sealed here
+// shows up in the web app's timeline, and the other way round.
+
+const participants = (role) => ({ participants: [{ role, slots: { min: 1, max: 1 } }] });
+const maintainerOnly = (variables) => ({ maintainer: { requirements: { variables, secrets: ['maintainerKey'] } } });
+const kindName = (kind) => ({ 0: 'created', 1: 'sealed', 2: 'revoked' })[kind];
+
+const record = (kind) => `OP_RETURN <"RSEAL"> <1> <${kind}> <recordVersion> <recordUrl>`;
+
+export const releaseSealTemplate = {
+  $schema: 'https://libauth.org/schemas/wallet-template-v0.schema.json',
+  name: 'Release Seal',
+  description:
+    'Seal software releases on Bitcoin Cash. A project is a CashTokens category; its mutable NFT holds the Merkle root of the latest release files and only its holder can seal the next release or revoke one.',
+  icon: 'seal',
+  version: '1',
+  supported: ['BCH_2025_05', 'BCH_2026_05'],
+  defaults: {
+    change: { output: 'changeOutput', role: 'maintainer', generate: ['maintainerKey'] },
+    address: { lockingScript: 'maintainerLockingScript', role: 'maintainer', generate: ['maintainerKey'] },
+    receive: { output: 'fundingOutput', role: 'maintainer', generate: ['maintainerKey'] },
+  },
+  roles: {
+    maintainer: { name: 'Maintainer', description: 'Holds the project NFT and seals releases.', icon: 'seal' },
+    funder: { name: 'Funder', description: 'Pays the maintainer coins for fees.', icon: 'send' },
+  },
+  start: [
+    { action: 'fund', role: 'maintainer', generate: ['maintainerKey'] },
+    { action: 'createProject', role: 'maintainer', generate: ['maintainerKey'] },
+  ],
+  actions: {
+    fund: {
+      name: 'Fund',
+      description: 'Receive coins that pay the fees of later seals.',
+      icon: 'receive',
+      roles: {
+        maintainer: { name: 'Receive', description: 'Receive coins for seal fees.', icon: 'receive', requirements: { secrets: ['maintainerKey'] } },
+        funder: { name: 'Send', description: 'Send coins to the maintainer.', icon: 'send', requirements: {} },
+      },
+      requirements: { participants: [{ role: 'maintainer', slots: { min: 1, max: 1 } }, { role: 'funder', slots: { min: 1 } }] },
+      transaction: 'fundTransaction',
+    },
+    prepareGenesisCoin: {
+      name: 'Prepare Genesis Coin',
+      description: 'Move $(<genesisSatoshis>) satoshis to output 0 of a new transaction; a project can only start from a coin at output 0.',
+      icon: 'seal',
+      roles: maintainerOnly(['genesisSatoshis']),
+      requirements: participants('maintainer'),
+      transaction: 'prepareTransaction',
+    },
+    createProject: {
+      name: 'Create Project',
+      description: 'Start a project: mint its mutable NFT (empty release root) and write the creation record.',
+      icon: 'seal',
+      roles: maintainerOnly(['projectCategory', 'recordVersion', 'recordUrl']),
+      requirements: participants('maintainer'),
+      transaction: 'createProjectTransaction',
+    },
+    sealRelease: {
+      name: 'Seal Release',
+      description: 'Seal a release: the project NFT takes the Merkle root of the release files as its new commitment.',
+      icon: 'seal',
+      roles: maintainerOnly(['projectCategory', 'currentRoot', 'releaseRoot', 'recordVersion', 'recordUrl']),
+      requirements: participants('maintainer'),
+      transaction: 'sealReleaseTransaction',
+    },
+    revokeRelease: {
+      name: 'Revoke Release',
+      description: 'Mark a sealed release as revoked; the project NFT keeps its commitment.',
+      icon: 'burn',
+      roles: maintainerOnly(['projectCategory', 'currentRoot', 'recordVersion', 'recordUrl']),
+      requirements: participants('maintainer'),
+      transaction: 'revokeReleaseTransaction',
+    },
+  },
+  transactions: {
+    fundTransaction: {
+      name: 'Funded',
+      description: 'Coins received for seal fees.',
+      icon: 'receive',
+      inputs: [],
+      outputs: [{ output: 'fundingOutput' }],
+      version: 2,
+      locktime: 0,
+      composable: true,
+    },
+    prepareTransaction: {
+      name: 'Genesis coin prepared',
+      description: '$(<genesisSatoshis>) satoshis now sit at output 0, ready to start a project.',
+      icon: 'seal',
+      inputs: [{ input: 'feeInput', inputIndex: 0 }],
+      outputs: [{ output: 'genesisCoinOutput', outputIndex: 0 }],
+      version: 2,
+      locktime: 0,
+      composable: true,
+    },
+    createProjectTransaction: {
+      name: 'Project created',
+      description: 'Project $(<recordVersion>) created; its category is the transaction id of the coin spent at input 0.',
+      icon: 'seal',
+      inputs: [{ input: 'genesisInput', inputIndex: 0 }],
+      outputs: [
+        { output: 'projectGenesisOutput', outputIndex: 0 },
+        { output: 'createdRecordOutput', outputIndex: 1 },
+      ],
+      version: 2,
+      locktime: 0,
+      composable: true,
+    },
+    sealReleaseTransaction: {
+      name: 'Release sealed',
+      description: 'Release $(<recordVersion>) sealed.',
+      icon: 'seal',
+      inputs: [{ input: 'projectNftInput', inputIndex: 0 }],
+      outputs: [
+        { output: 'projectReleaseOutput', outputIndex: 0 },
+        { output: 'sealedRecordOutput', outputIndex: 1 },
+      ],
+      version: 2,
+      locktime: 0,
+      composable: true,
+    },
+    revokeReleaseTransaction: {
+      name: 'Release revoked',
+      description: 'Release $(<recordVersion>) revoked.',
+      icon: 'burn',
+      inputs: [{ input: 'projectNftInput', inputIndex: 0 }],
+      outputs: [
+        { output: 'projectKeptOutput', outputIndex: 0 },
+        { output: 'revokedRecordOutput', outputIndex: 1 },
+      ],
+      version: 2,
+      locktime: 0,
+      composable: true,
+    },
+  },
+  inputs: {
+    feeInput: {
+      name: 'Fee coin',
+      description: 'A plain coin of the maintainer.',
+      icon: 'receive',
+      unlockingScript: 'unlockP2PKH',
+      token: null,
+    },
+    genesisInput: {
+      name: 'Genesis coin',
+      description: 'A plain coin at output 0 of its transaction; that transaction id becomes the project category.',
+      icon: 'seal',
+      unlockingScript: 'unlockP2PKH',
+      token: null,
+    },
+    projectNftInput: {
+      name: 'Project NFT',
+      description: 'The mutable project NFT of category $(<projectCategory>) with root $(<currentRoot>).',
+      icon: 'seal',
+      unlockingScript: 'unlockP2PKH',
+      token: { category: '$(<projectCategory>)', nft: { capability: '$(<mutableCapability>)', commitment: '$(<currentRoot>)' } },
+      omitChangeAmounts: { nonfungibleTokens: 1 },
+    },
+  },
+  outputs: {
+    changeOutput: { name: 'Change', description: 'Coins returned as change.', icon: 'receive', lockingScript: 'maintainerLockingScript' },
+    fundingOutput: {
+      name: 'Fee coins',
+      description: 'Coins for seal fees.',
+      icon: 'receive',
+      lockingScript: 'maintainerLockingScript',
+      valueSatoshis: '$(<transferredSatoshis>)',
+      token: null,
+    },
+    genesisCoinOutput: {
+      name: 'Genesis coin',
+      description: '$(<genesisSatoshis>) satoshis at output 0.',
+      icon: 'seal',
+      lockingScript: 'maintainerLockingScript',
+      valueSatoshis: '$(<genesisSatoshis>)',
+      token: null,
+    },
+    projectGenesisOutput: {
+      name: 'Project NFT',
+      description: 'New project NFT with the empty release root.',
+      icon: 'seal',
+      lockingScript: 'maintainerLockingScript',
+      valueSatoshis: '$(<nftSatoshis>)',
+      token: { category: '$(<projectCategory>)', amount: '0', nft: { capability: '$(<mutableCapability>)', commitment: '$(<emptyRoot>)' } },
+    },
+    projectReleaseOutput: {
+      name: 'Project NFT',
+      description: 'Project NFT carrying the root of release $(<recordVersion>).',
+      icon: 'seal',
+      lockingScript: 'maintainerLockingScript',
+      valueSatoshis: '$(<nftSatoshis>)',
+      token: { category: '$(<projectCategory>)', amount: '0', nft: { capability: '$(<mutableCapability>)', commitment: '$(<releaseRoot>)' } },
+    },
+    projectKeptOutput: {
+      name: 'Project NFT',
+      description: 'Project NFT, commitment unchanged.',
+      icon: 'seal',
+      lockingScript: 'maintainerLockingScript',
+      valueSatoshis: '$(<nftSatoshis>)',
+      token: { category: '$(<projectCategory>)', amount: '0', nft: { capability: '$(<mutableCapability>)', commitment: '$(<currentRoot>)' } },
+    },
+    createdRecordOutput: { name: 'Creation record', description: `Record: ${kindName(0)} $(<recordVersion>).`, icon: 'seal', lockingScript: 'createdRecordLockingScript', valueSatoshis: '0', token: null },
+    sealedRecordOutput: { name: 'Seal record', description: `Record: ${kindName(1)} $(<recordVersion>).`, icon: 'seal', lockingScript: 'sealedRecordLockingScript', valueSatoshis: '0', token: null },
+    revokedRecordOutput: { name: 'Revoke record', description: `Record: ${kindName(2)} $(<recordVersion>).`, icon: 'burn', lockingScript: 'revokedRecordLockingScript', valueSatoshis: '0', token: null },
+  },
+  lockingScripts: {
+    maintainerLockingScript: {
+      name: 'Maintainer',
+      description: 'The maintainer address: holds the project NFT and the fee coins.',
+      icon: 'address',
+      lockingType: 'p2pkh',
+      lockingBytecode: 'lockP2PKH',
+      unlockingBytecode: 'unlockP2PKH',
+      actions: [],
+      roles: {
+        maintainer: {
+          state: { variables: [], secrets: ['maintainerKey'] },
+          actions: [
+            { action: 'prepareGenesisCoin', role: 'maintainer', secrets: [{ maintainerKey: null }] },
+            { action: 'createProject', role: 'maintainer', secrets: [{ maintainerKey: null }] },
+            { action: 'sealRelease', role: 'maintainer', secrets: [{ maintainerKey: null }] },
+            { action: 'revokeRelease', role: 'maintainer', secrets: [{ maintainerKey: null }] },
+          ],
+          balance: { satoshis: true, nonfungibleTokens: true },
+          selectable: true,
+        },
+      },
+    },
+    createdRecordLockingScript: { name: 'Creation record', description: 'OP_RETURN record of a new project.', icon: 'seal', lockingType: 'p2s', lockingBytecode: 'createdRecord', actions: [], selectable: false },
+    sealedRecordLockingScript: { name: 'Seal record', description: 'OP_RETURN record of a sealed release.', icon: 'seal', lockingType: 'p2s', lockingBytecode: 'sealedRecord', actions: [], selectable: false },
+    revokedRecordLockingScript: { name: 'Revoke record', description: 'OP_RETURN record of a revoked release.', icon: 'burn', lockingType: 'p2s', lockingBytecode: 'revokedRecord', actions: [], selectable: false },
+  },
+  scripts: {
+    lockP2PKH: 'OP_DUP OP_HASH160 <$(<maintainerKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG',
+    unlockP2PKH: '<maintainerKey.schnorr_signature.all_outputs> <maintainerKey.public_key>',
+    createdRecord: record(0),
+    sealedRecord: record(1),
+    revokedRecord: record(2),
+  },
+  constants: {
+    nftSatoshis: { name: 'NFT Satoshis', description: 'Satoshis kept on the project NFT.', type: 'satoshis', value: 1000 },
+    mutableCapability: { name: 'Mutable', description: 'The project NFT is mutable: its holder may change the commitment.', type: 'token_capability', value: 'mutable' },
+    emptyRoot: {
+      name: 'Empty Root',
+      description: 'Merkle root of an empty file list: SHA-256 of nothing.',
+      type: 'token_commitment',
+      value: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    },
+  },
+  variables: {
+    maintainerKey: { name: 'Maintainer Key', description: 'The key of the address that holds the project NFT.', type: 'private_key' },
+    transferredSatoshis: { name: 'Amount', description: 'Satoshis sent for fees.', type: 'satoshis' },
+    genesisSatoshis: { name: 'Genesis Amount', description: 'Satoshis moved to output 0 for a new project.', type: 'satoshis' },
+    projectCategory: { name: 'Project', description: 'The project id: its token category.', type: 'token_category' },
+    currentRoot: { name: 'Current Root', description: 'The commitment the project NFT carries now.', type: 'token_commitment' },
+    releaseRoot: { name: 'Release Root', description: 'Merkle root of the release files (name, size, SHA-256 of each).', type: 'token_commitment' },
+    recordVersion: { name: 'Version', description: 'The release version, or the project name on creation.', type: 'string' },
+    recordUrl: { name: 'File List URL', description: 'Where the release file list (seal.json) lives, or the project page on creation.', type: 'string' },
+  },
+  icons: ['seal', 'send', 'receive', 'burn', 'address'].map((name) => ({ name, hash: '0000000000000000000000' })),
+};
